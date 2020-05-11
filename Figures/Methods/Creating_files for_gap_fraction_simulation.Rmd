@@ -1,0 +1,96 @@
+
+```{r}
+library(ggplot2)
+```
+
+```{r}
+dat = read.table("C:/Users/Gast/DART/user_data/simulations/1_tree_gap_fraction/input/LADs/default.txt", sep = " ", col.names = c("Thetaf","g_sinThetaf", "na"), stringsAsFactors = F)
+ladex = dat[,-3]
+write.table(ladex, "C:/Users/Gast/DART/user_data/simulations/1_tree_gap_fraction/input/0.txt", sep = " ", row.names = F, quote = F, col.names = F)
+ladex$g_sinThetaf[182] = "0.00000000000000000000e+000"
+
+for (i in c(0:89)) {
+  ladangle = ladex
+  ladangle$g_sinThetaf[182 - 2*i] = "1.00000000000000000000e+000"
+  write.table(ladangle, paste0("C:/Users/Gast/DART/user_data/simulations/1_tree_gap_fraction/input/", i, ".txt"), sep = " ", row.names = F, quote = F, col.names = F)
+}
+cat(c(0:90), sep = ".txt; ")
+```
+
+```{r}
+x = sapply(c(0:9), function(x) {
+  dat = read.csv(paste0("C:/Users/Gast/DART/user_data/simulations/1_tree_gap_fraction/sequence/angles_",x,"/output/BAND0/RADIATIVE_BUDGET/ITERX/RadiativeBudget_3D"), 
+                 skip = 41, sep = " ")
+  dat = dat[, !(colnames(dat) == "X")]
+  res = sum(dat[1:17,])
+  res = res/4
+  res = 25 - 4 - res
+  res = res/21
+  return(res)
+})
+plot(x)
+```
+```{r}
+library(ggplot2)
+xc = as.data.frame(cbind(x, c(0:89)))
+colnames(xc) = c("value", "index")
+xmod = glm(value ~ sqrt(index) + index, data = xc)
+summary(xmod)
+plot(xmod)
+ggplot(xc, aes(index, value)) + geom_point()
+```
+```{r}
+summary(x)
+#ecstract values of angles closest to c(0:10)/10, paramerize with them
+whichclosest = function(vec, x) {
+  return(which.min(abs(vec - x)))
+}
+
+result_indexes = sapply(c(1:10)/10, function(y) whichclosest(x, y))
+result_indexes
+```
+```{r}
+for (i in result_indexes) {
+  ladangle = ladex
+  ladangle$g_sinThetaf[182 - 2*i] = "1.00000000000000000000e+000"
+  write.table(ladangle, paste0("C:/Users/Gast/DART/user_data/simulations/1_tree_gap_fraction/input/", i, ".txt"), sep = " ", row.names = F, quote = F, col.names = F)
+}
+cat(result_indexes, sep = ".txt; ")
+```
+
+
+```{r}
+ggplot(xc[c(0:10)*2 + 1,], aes(index, value)) + geom_point()
+```
+
+```{r}
+ggplot(xc[c(0:10)*3 + 1,], aes(index, value)) + geom_point()
+```
+
+
+1. create simulation with 2 species
+2. add scenes combinations 1-4
+4. parametrize correctly - lop, scene white
+3. run it all
+
+
+
+
+```{r}
+dat = read.csv(paste0("C:/Users/Gast/DART/user_data/simulations/1_tree_gap_fraction/sequence/angles_",10,"/output/BAND0/RADIATIVE_BUDGET/ITERX/RadiativeBudget_3D"), 
+                 skip = 41, sep = " ")
+dat = dat[, !(colnames(dat) == "X")]
+
+ground = as.vector(dat[18,])
+dim(ground) <- c(10,10)
+sum(ground)
+ground = matrix(ground, nrow = 10, ncol = 10)
+ground = as.matrix(ground[1:5,1:5])
+sum(ground + mean(ground[1,1], ground[5,1], ground[1,5], ground[5,5]))
+sum(dat[1:17,])
+```
+
+
+
+
+

@@ -1,0 +1,575 @@
+
+---
+title: "Impacts of species diversity on the light distribution in canopies<br>
+&nbsp;"
+subtitle: "<center> ---------------- Leaf Angle Distribution ---------------- </center>"
+author: "Elena Plekhanova"
+date: "`r format(Sys.time(), '%B %e, %Y')`"
+output:
+  html_notebook: 
+    code_folding: hide
+
+fontsize: 16pt
+---
+
+```{r}
+solar_path = "./Data_for_figures/Solar_irradiance.csv"
+
+read_solar_irradiance = function(sol_path = solar_path, bands = "all") {
+  srad = read.csv(sol_path)
+  srad = srad[srad$wavelength < 3,c(2:3)]
+  srad$wavelength = round(srad$wavelength, 3)
+  srad = srad[srad$wavelength %in% (c(4:25)/10),]
+  srad = aggregate(srad, by = list(srad$wavelength), FUN = "mean")[,c(2:3)]
+  if (bands == "VIS") {
+    
+    srad$irradiance = srad$irradiance/sum(srad$irradiance[1:4])
+    srad$irradiance[5:22] = 0
+    
+  } else srad$irradiance = srad$irradiance/sum(srad$irradiance)
+  
+  return(srad$irradiance)
+}
+
+
+diff_betw_mix_and_av_of_mon = function(subdat, Nscenes_loc = Nscenes, Nspecies_loc = Nspecies) {
+ 
+  subdat_crown = as.data.frame(subdat[subdat$height_m != 1,])
+
+  aggdat = aggregate(abs_mean ~ height_m + pos + num_of_species + scenetype, data = subdat_crown, FUN = "mean")
+  mix_tab = lapply(unique(aggdat$scenetype), function(SCTYPE) {
+    res_tab = lapply(unique(aggdat$pos[as.numeric(aggdat$num_of_species) > 1]), function(POS) {
+
+      av_mixture = subset(aggdat, pos == POS & scenetype == SCTYPE, abs_mean)
+
+      abs_of_monocultures = lapply(unique(subdat_crown$species[subdat_crown$pos == POS]), function(x) {
+        position_of_mon = subdat_crown$pos[subdat_crown$species == x & 
+                                             subdat_crown$num_of_species == 1 & subdat_crown$scenetype == SCTYPE][1]
+        res = subset(aggdat, pos == position_of_mon & scenetype == SCTYPE, select = abs_mean)
+        return(res)
+      })
+        
+      av_monocultures = apply(do.call(rbind.data.frame, list(abs_of_monocultures)), 1, mean)
+      
+      
+      one_mix = data.frame( (av_mixture[,1] - av_monocultures), c(1:nrow(av_mixture)), rep(POS, nrow(av_mixture)))
+      colnames(one_mix) = c("abs_mean", "height_m", "pos")
+      
+      one_mix$diff_sum = rep(round(sum(one_mix$abs_mean), 3), nrow(one_mix))
+      one_mix$num_of_species = rep(aggdat$num_of_species[aggdat$pos == POS][1], nrow(one_mix))
+      
+      return(one_mix)
+    })
+    res_tab = do.call(rbind.data.frame, res_tab)
+    res_tab$scenetype = SCTYPE
+    return(res_tab)
+  })
+  mix_tab = do.call(rbind.data.frame, mix_tab)
+  
+  return(mix_tab)
+}
+
+diff_betw_sp_in_mix_and_in_mon = function(subdat, Nscenes_loc = Nscenes, Nspecies_loc = Nspecies) {
+ 
+  subdat_crown = as.data.frame(subdat[subdat$height_m != 1,])
+
+  aggdat = aggregate(abs_mean ~ height_m + pos + num_of_species + scenetype + species, data = subdat_crown, FUN = "mean")
+  aggdat = aggregate(abs_mean ~ pos + num_of_species + scenetype + species, data = aggdat, FUN = "sum")
+  
+  mix_tab = lapply(unique(aggdat$scenetype), function(SCTYPE) {
+    res_tab = lapply(unique(aggdat$pos[as.numeric(aggdat$num_of_species) > 1]), function(POS) {
+
+      av_mix = subset(aggdat, pos == POS & scenetype == SCTYPE)
+      sps = unique(av_mix$species)
+      av_mix_sp1 = av_mix$abs_mean[av_mix$species == sps[1]]
+      av_mix_sp2 = av_mix$abs_mean[av_mix$species == sps[2]]
+      av_mon_sp1 = subset(aggdat, species == sps[1] & scenetype == SCTYPE & num_of_species == 1)$abs_mean
+      av_mon_sp2 = subset(aggdat, species == sps[2] & scenetype == SCTYPE & num_of_species == 1)$abs_mean
+
+      one_mix = data.frame(cbind(c((av_mix_sp1 - av_mon_sp1)[1], (av_mix_sp2 - av_mon_sp2)[1]), 
+                                 c(av_mon_sp1, av_mon_sp2),
+                            rep(POS, 2) ))
+      
+      colnames(one_mix) = c("abs_mean", "mon_abs", "pos")
+      one_mix$diff_mon = abs((av_mon_sp1 - av_mon_sp2)[1])
+      one_mix$diff_mix = abs((av_mix_sp1 - av_mix_sp2)[1])
+      one_mix$species = sps
+      one_mix$name_species = paste0(sps[1], " + ", sps[2])
+      
+      return(one_mix)
+    })
+    res_tab = do.call(rbind.data.frame, res_tab)
+    res_tab$scenetype = SCTYPE
+    return(res_tab)
+  })
+  mix_tab = do.call(rbind.data.frame, mix_tab)
+  
+  return(mix_tab)
+}
+```
+
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+dat = read.csv("./Data_for_figures/profiles_lad6_90.csv")
+
+
+Ncomb = 63
+Nscenes = 3
+Nspecies = 6
+#WAVE_RANGE = "VIS"
+
+cumsumm = cumsum(unlist(sapply(c(1:Nspecies), function(x) choose(Nspecies, x))))
+the_list_of_comb = sapply(c(1:Nspecies), function(k) sapply(c(1:choose(Nspecies, k)), function(i) combn(Nspecies, k)[,i]))
+the_list_of_sp = unlist(sapply(c(2:Nspecies), function(j) { x = the_list_of_comb[[j]]
+  res = split(x, rep(1:ncol(x), each = nrow(x)))
+  return(res)}), recursive = FALSE)
+the_list_of_sp = append(sapply(c(1:Nspecies), function(x) list(x)), the_list_of_sp)
+names(the_list_of_sp) = c(1:63)
+dat$list_of_sp = the_list_of_sp[dat$pos]
+
+dat$num_of_species = as.factor(dat$num_of_species)
+dat$species = as.factor(dat$species)
+levels(dat$species) = c("spherical", "uniform", "vertical", "horizontal", "plagiophile", "extremophile")
+```
+
+```{r}
+
+subdat = dat[dat$band %in% c(1:4) &  dat$scenetype == 1,]
+solar_irradiance = read_solar_irradiance(bands = "VIS")
+#subdat = dat[dat$band %in% c(5:22) &  dat$scenetype == 1,]
+#solar_irradiance = read_solar_irradiance(bands = "NIR")
+subdat$abs_mean = (subdat$abs_mean)*solar_irradiance[subdat$band]
+
+subdat = aggregate(abs_mean  ~  num_of_species + height_m + species + pos + scenetype, data = subdat, FUN = "sum")
+#subdat = aggregate(abs_sd  ~  num_of_species + height_m + species + scenetype, data = subdat, FUN = "sum")
+  
+subdat_crown = as.data.frame(subdat[subdat$height_m != 1,])
+subdat_scene = subdat[subdat$height_m == 1,]
+```
+
+Profiles of absorption of different species (differ by LAD) in different mixtures (1 - 6 species)
+
+```{r fig.height=5, fig.width=10, message=FALSE, warning=FALSE}
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_cl_boot', geom = 'ribbon', alpha = 0.2) +
+  
+  scale_y_continuous(breaks = seq(0,0.10,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.4, vjust   = -15, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.4, vjust   = -13, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), 
+        title = element_text(size=16), legend.position = "none", strip.background = element_rect(fill="white"))
+```
+
+```{r fig.height=4, fig.width=7, message=FALSE, warning=FALSE}
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+fontsize = 16
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_cl_boot', geom = 'ribbon', alpha = 0.2) +
+  
+  scale_y_continuous(breaks = seq(0,0.10,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.4, vjust   = -15, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.4, vjust   = -13, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=fontsize, hjust = 0.5),
+        axis.title.x = element_text(size=fontsize), axis.text.x  = element_text(size=fontsize - 6),
+        axis.title.y = element_text(size=fontsize), axis.text.y  = element_text(size=fontsize - 6),
+        strip.text.x = element_text(size = fontsize - 6), strip.text.y = element_text(size = fontsize - 6),
+        legend.text = element_text(size=fontsize - 6), legend.title = element_text(size=fontsize - 6), title = element_text(size=fontsize), 
+        legend.position = "none", strip.background = element_rect(fill="white"))
+```
+
+
+```{r fig.height=6, fig.width=14}
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+fontsize = 24
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.6) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_cl_boot', geom = 'ribbon', alpha = 0.3) +
+  
+  scale_y_continuous(breaks = seq(0,0.10,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -17, show.legend = FALSE, size = 5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -15, show.legend = FALSE, size = 5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_classic() + xlab("height, m") +
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "Diversity\nlevel", ncol = 1)) + 
+  scale_fill_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "Diversity\nlevel", ncol = 1))  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "darkgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=fontsize, hjust = 0.5),
+        axis.title.x = element_text(size=fontsize), axis.text.x  = element_text(size=fontsize - 6),
+        axis.title.y = element_text(size=fontsize), axis.text.y  = element_text(size=fontsize - 6),
+        strip.text.x = element_text(size = fontsize - 6), strip.text.y = element_text(size = fontsize - 6),
+        legend.text = element_text(size=fontsize - 6), legend.title = element_text(size=fontsize - 6), 
+        title = element_text(size=fontsize), legend.position = "bottom")
+```
+
+```{r fig.height=5, fig.width=10}
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  
+  scale_y_continuous(breaks = seq(0,0.10,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -18, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -16, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16), legend.position = "none")
+```
+* red number indicate average absorptance of a tree of certain specie in monocultures,
+blue number indicate average absorptance of a tree of certain specie in mixture of 6 species.
+
+```{r}
+subdat = dat[dat$band %in% c(1:4) &  dat$scenetype == 3,]
+solar_irradiance = read_solar_irradiance(bands = "VIS")
+subdat$abs_mean = (subdat$abs_mean)*solar_irradiance[subdat$band]
+
+subdat = aggregate(abs_mean  ~  num_of_species + height_m + species + pos + scenetype, data = subdat, FUN = "sum")
+subdat_crown = as.data.frame(subdat[subdat$height_m != 1,])
+subdat_scene = subdat[subdat$height_m == 1,]
+```
+
+### Natural background
+```{r fig.height=7, fig.width=12}
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -25, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -23, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("proportion of absorbed light")  + theme_bw() + xlab("height, m") + ggtitle("Species") +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+
+```{r}
+subdat = dat[dat$band %in% c(1:4) &  dat$scenetype == 2,]
+solar_irradiance = read_solar_irradiance(bands = "VIS")
+subdat$abs_mean = (subdat$abs_mean)*solar_irradiance[subdat$band]
+
+subdat = aggregate(abs_mean  ~  num_of_species + height_m + species + pos + scenetype, data = subdat, FUN = "sum")
+subdat_crown = as.data.frame(subdat[subdat$height_m != 1,])
+subdat_scene = subdat[subdat$height_m == 1,]
+```
+
+### Black background
+```{r fig.height=7, fig.width=12}
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -25, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -23, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("proportion of absorbed light")  + theme_bw() + xlab("height, m") + ggtitle("Species") +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+The effect stays the same, but it is much smaller.
+
+```{r}
+subdat = dat[dat$band %in% c(1:4) &  dat$scenetype == 1,]
+solar_irradiance = read_solar_irradiance(bands = "VIS")
+subdat$abs_mean = (subdat$abs_mean)*solar_irradiance[subdat$band]
+subdat = aggregate(abs_mean  ~  num_of_species + height_m + species + pos + scenetype, data = subdat, FUN = "sum")
+
+black_albedo = dat[dat$band %in% c(1:4) &  dat$scenetype == 2,]
+solar_irradiance = read_solar_irradiance(bands = "VIS")
+black_albedo$abs_mean = (black_albedo$abs_mean)*solar_irradiance[black_albedo$band]
+black_albedo = aggregate(abs_mean  ~  num_of_species + height_m + species + pos + scenetype, data = black_albedo, FUN = "sum")
+subdat$abs_mean = subdat$abs_mean - black_albedo$abs_mean
+
+
+subdat_crown = as.data.frame(subdat[subdat$height_m != 1,])
+subdat_scene = subdat[subdat$height_m == 1,]
+```
+### "Black - white" background
+```{r fig.height=7, fig.width=12}
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -25, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -23, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("proportion of absorbed light")  + theme_bw() + xlab("height, m") + ggtitle("Species") +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+As we can see, most of the variation occurs in the "white - black" scene, after hitting the ground.
+
+```{r fig.height=7, fig.width=12}
+sp_of_interest = subset(dat, height_m != 1 & band %in% c(1:4) & pos %in% c(1,3,8))
+solar_irradiance = read_solar_irradiance(bands = "VIS")
+sp_of_interest$abs_mean = (sp_of_interest$abs_mean)*solar_irradiance[sp_of_interest$band]
+sp_of_interest = aggregate(abs_mean  ~  num_of_species + height_m + species + pos + scenetype, data = sp_of_interest, FUN = "sum")
+
+
+sp_of_interest$pos = as.factor(sp_of_interest$pos)
+levels(sp_of_interest$pos) = c("mon", "mon", "mix")
+#Nspecies = 2
+#mix_tab = diff_betw_mix_and_av_of_mon(sp_of_interest)
+sp_of_interest$scenetype = as.factor(sp_of_interest$scenetype)
+levels(sp_of_interest$scenetype) = c("white", "black", "natural")
+
+sp_of_interest_wh_bl = sp_of_interest[sp_of_interest$scenetype == "natural",]
+sp_of_interest_wh_bl$abs_mean = sp_of_interest$abs_mean[sp_of_interest$scenetype == "white"] - 
+  sp_of_interest$abs_mean[sp_of_interest$scenetype == "black"]
+sp_of_interest_wh_bl$scenetype = "white - black"
+sp_of_interest = as.data.frame(rbind(sp_of_interest, sp_of_interest_wh_bl))
+sp_of_interest$scenetype = factor(sp_of_interest$scenetype,c("white", "black", "white - black", "natural"))
+
+ggplot(data = sp_of_interest, 
+       aes(x = height_m, y = abs_mean, col = interaction(pos, species), group = interaction(pos, species))) +
+  geom_line(size = 1.2) +
+  ylab("proportion of absorbed light")  + theme_bw() + xlab("height, m") + 
+  ggtitle("type of background") + 
+  scale_color_brewer(palette = "Paired", direction = -1) +
+  coord_flip() +
+  facet_grid(~scenetype, space = "free", scales = "free") + 
+  scale_y_continuous(breaks = seq(0,0.14,0.05)) +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor.y = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+Here, the H1 from the experiment with LOP seem doesn't hold anymore.
+
+H1: A tree with higher absorptance gain more light in mixtures, while trees with lower absorptance loose light
+We tested H1 for all combinations of 2 trees, by representing difference betw mixt and mono on one axis and absorptance in monocultures in another axis:
+
+
+```{r fig.height=7, fig.width=12}
+sp_of_interest = subset(dat, height_m != 1 & band %in% c(1:4) & pos %in% c(1,4,9))
+solar_irradiance = read_solar_irradiance(bands = "VIS")
+sp_of_interest$abs_mean = (sp_of_interest$abs_mean)*solar_irradiance[sp_of_interest$band]
+sp_of_interest = aggregate(abs_mean  ~  num_of_species + height_m + species + pos + scenetype, data = sp_of_interest, FUN = "sum")
+
+
+sp_of_interest$pos = as.factor(sp_of_interest$pos)
+levels(sp_of_interest$pos) = c("mon", "mon", "mix")
+#Nspecies = 2
+#mix_tab = diff_betw_mix_and_av_of_mon(sp_of_interest)
+sp_of_interest$scenetype = as.factor(sp_of_interest$scenetype)
+levels(sp_of_interest$scenetype) = c("white", "black", "natural")
+
+sp_of_interest_wh_bl = sp_of_interest[sp_of_interest$scenetype == "natural",]
+sp_of_interest_wh_bl$abs_mean = sp_of_interest$abs_mean[sp_of_interest$scenetype == "white"] - 
+  sp_of_interest$abs_mean[sp_of_interest$scenetype == "black"]
+sp_of_interest_wh_bl$scenetype = "white - black"
+sp_of_interest = as.data.frame(rbind(sp_of_interest, sp_of_interest_wh_bl))
+sp_of_interest$scenetype = factor(sp_of_interest$scenetype,c("white", "black", "white - black", "natural"))
+
+ggplot(data = sp_of_interest, 
+       aes(x = height_m, y = abs_mean, col = interaction(pos, species), group = interaction(pos, species))) +
+  geom_line(size = 1.2) +
+  ylab("proportion of absorbed light")  + theme_bw() + xlab("height, m") + 
+  ggtitle("type of background") + 
+  scale_color_brewer(palette = "Paired", direction = -1) +
+  coord_flip() +
+  facet_grid(~scenetype, space = "free", scales = "free") + 
+  scale_y_continuous(breaks = seq(0,0.14,0.05)) +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor.y = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+
+
+```{r fig.height=7, fig.width=12}
+sp_of_interest = subset(dat, height_m != 1 & band == WAVE_RANGE & num_of_species %in% c(1,2), select = c("num_of_species", "species", "pos", "scenetype", "height_m", "abs_mean"))
+
+
+sp_of_interest$scenetype = as.factor(sp_of_interest$scenetype)
+levels(sp_of_interest$scenetype) = c("white", "black", "natural")
+
+
+whbl_subdat = merge(sp_of_interest[sp_of_interest$scenetype == "white",], 
+                    sp_of_interest[sp_of_interest$scenetype == "black",], 
+                      by = c("num_of_species", "species", "pos", "height_m"))
+whbl_subdat$abs_mean = whbl_subdat$abs_mean.x - whbl_subdat$abs_mean.y
+whbl_subdat$scenetype = "white - black"
+whbl_subdat = subset(whbl_subdat, select = c("num_of_species", "species", "pos", "scenetype", "height_m", "abs_mean"))
+
+sp_of_interest = as.data.frame(rbind(sp_of_interest, whbl_subdat))
+sp_of_interest$scenetype = factor(sp_of_interest$scenetype,c("white", "black", "white - black", "natural"))
+mix_tab = diff_betw_sp_in_mix_and_in_mon(sp_of_interest)
+mix_tab = diff_betw_sp_in_mix_and_in_mon(sp_of_interest)
+ggplot(data = mix_tab, 
+       aes(x = mon_abs, y = abs_mean, col = as.factor(name_species), group = as.factor(pos)) ) +
+  geom_point() + geom_line() +
+  geom_hline(aes(yintercept = 0), col = "gray35") +
+  ylab("Diffrence in absorbtance of mixtures minus monocultures")  + 
+  theme_bw() + xlab("absorptance in monoculture") + 
+  ggtitle("type of background") + 
+  coord_flip() +
+  facet_grid(~scenetype, space = "free", scales = "free") + 
+  scale_y_continuous(breaks = seq(-1,1,0.1)) +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor.y = element_blank(), 
+        #panel.grid.major.y = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+

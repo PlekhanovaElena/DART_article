@@ -1,0 +1,209 @@
+---
+title: "LOPs investigation"
+author: "Elena Plekhanova"
+date: "`r format(Sys.time(), '%B %e, %Y')`"
+output:
+  html_notebook: 
+    code_folding: hide
+
+fontsize: 16pt
+---
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(reshape)
+library(dplyr)
+library(tidyr)
+
+myprettyoptions = theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor.y = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=9), axis.text.x  = element_text(size=8),
+        axis.title.y = element_text(size=9), axis.text.y  = element_text(size=8),
+        strip.text.x = element_text(size = 9), strip.text.y = element_text(size = 9),
+        legend.text = element_text(size=8), legend.title = element_text(size=8), title = element_text(size=9))
+```
+
+## DART LOPs
+
+```{r}
+beech = read.csv("./LOPs/beech_middle.csv")[,c(2,3,5)]
+colnames(beech)[2:3] = paste0("beech", c("_refl", "_transm"))
+beech$beech_abs = 100 - beech$beech_refl - beech$beech_transm
+elm = read.csv("./LOPs/elm_middle.csv")[,c(2,3,5)]
+colnames(elm)[2:3] = paste0("elm", c("_refl", "_transm"))
+elm$elm_abs = 100 - elm$elm_refl - elm$elm_transm
+eucalyptus = read.csv("./LOPs/eucalyptus_g_m.csv")[,c(2,3,5)]
+colnames(eucalyptus)[2:3] = paste0("eucalyptus", c("_refl", "_transm"))
+eucalyptus$eucalyptus_abs = 100 - eucalyptus$eucalyptus_refl - eucalyptus$eucalyptus_transm
+deciduous = read.csv("./LOPs/leaf_deciduous.csv")[,c(2,3,5)]
+colnames(deciduous)[2:3] = paste0("deciduous", c("_refl", "_transm"))
+deciduous$deciduous_abs = 100 - deciduous$deciduous_refl - deciduous$deciduous_transm
+picea = read.csv("./LOPs/picea_abies_leaf.csv")[,c(2,3,5)]
+colnames(picea)[2:3] = paste0("picea", c("_refl", "_transm"))
+picea$picea_abs = 100 - picea$picea_refl - picea$picea_transm
+populus = read.csv("./LOPs/populus_tremuloides_leaf.csv")[,c(2,3,5)]
+colnames(populus)[2:3] = paste0("populus", c("_refl", "_transm"))
+populus$populus_abs = 100 - populus$populus_refl - populus$populus_transm
+
+```
+
+
+
+
+```{r}
+dart_lops <- Reduce(function(x, y) merge(x, y, all=TRUE, by="wavelength"), list(beech, elm, eucalyptus, deciduous, picea, populus))
+dart_lops = dart_lops[dart_lops$wavelength < 2.5, ]
+```
+
+
+
+```{r}
+dart_lops <- melt(dart_lops, id=c("wavelength"))
+dart_lops = dart_lops %>% separate(variable, 
+                c("species", "type"))
+dart_lops$source = "DART"
+dart_lops = na.omit(dart_lops)
+dart_lops$wavelength = dart_lops$wavelength*1000
+dart_lops$value = dart_lops$value/100
+dart_lops$species = as.factor(dart_lops$species)
+levels(dart_lops$species) = c( "beech", "birch", "elm", "eucalyptus", "spruce", "aspen")
+```
+
+
+```{r fig.height=5, fig.width=10, message=TRUE, warning=TRUE}
+ggplot(data = subset(dart_lops,type %in% c("transm", "refl") & wavelength > 400 & wavelength < 700), 
+       aes(x = wavelength, y = value, col = species, group = interaction(species, type))) +
+  geom_line(size = 1) +
+  ylab("proportion of light")  + theme_bw() + xlab("wavelength") + 
+  scale_color_brewer(palette="Dark2") +
+  #facet_wrap(~type, ncol = 1) +
+  facet_grid(rows = vars(type)) +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor.y = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+* picea = Picea Abies - sprouce
+* populus = Populus Tremuloides - aspen
+
+```{r fig.height=3.3, fig.width=3.1, message=TRUE, warning=TRUE}
+p <- ggplot(dart_lops, aes(x = wavelength))
+  p <- p + geom_line(data = subset(dart_lops,type %in% c("refl") & wavelength > 400), aes(y = value, col = species, group = interaction(species, type)), size = 0.5)
+  
+  # adding the relative humidity data, transformed to match roughly the range of the temperature
+  p <- p + geom_line(data = subset(dart_lops,type %in% c("transm") & wavelength > 400), aes(y = 1 - value, col = species, group = interaction(species, type)), size = 0.5)
+  
+  # now adding the secondary axis, following the example in the help file ?scale_y_continuous
+  # and, very important, reverting the above transformation
+  p <- p + scale_y_continuous(sec.axis = sec_axis(~.,  name = "Transmittance", breaks = seq(0,1,0.2), labels = seq(1,0,-0.2)), breaks = seq(0,1,0.2)) 
+  
+  p <- p + labs(y = "Reflectance",
+                x = "Wavelength (nm)",
+                colour = "LOP")
+  #p <- p + theme(legend.position = c(0.8, 0.9))
+  
+  # modifying colours and theme options
+  p <- p + scale_color_brewer(palette="Dark2") +
+    theme_bw() + 
+    myprettyoptions + theme(legend.position="bottom")
+   
+p
+```
+
+```{r fig.height=4, fig.width=7, message=TRUE, warning=TRUE}
+fontsize = 20
+
+myprettyposteroptions = theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor.y = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=fontsize), axis.text.x  = element_text(size=fontsize - 2),
+        axis.title.y = element_text(size=fontsize), axis.text.y  = element_text(size=fontsize - 2),
+        strip.text.x = element_text(size = fontsize), strip.text.y = element_text(size = fontsize),
+        legend.text = element_text(size=fontsize - 6), legend.title = element_text(size=fontsize - 6), title = element_text(size=fontsize - 4))
+
+
+p <- ggplot(dart_lops, aes(x = wavelength))
+p <- p + geom_line(data = subset(dart_lops,type %in% c("transm") & wavelength > 400), aes(y = value, col = species, group = interaction(species, type)), size = 1)
+
+p <- p + labs(y = "Transmittance",
+              x = "Wavelength (nm)",
+              colour = "LOP")
+p <- p + scale_color_brewer(palette="Dark2") +
+  theme_bw() + 
+  myprettyposteroptions + theme(legend.position="none")
+
+p
+```
+
+
+
+```{r}
+lad_0 = read.table("./LADs/leafAngleDistributionFunctionVector[0].txt")
+lad_1 = read.table("./LADs/leafAngleDistributionFunctionVector[1].txt")
+lad_2 = read.table("./LADs/leafAngleDistributionFunctionVector[2].txt")
+lad_3 = read.table("./LADs/leafAngleDistributionFunctionVector[3].txt")
+lad_4 = read.table("./LADs/leafAngleDistributionFunctionVector[4].txt")
+lad_5 = read.table("./LADs/leafAngleDistributionFunctionVector[5].txt")
+lads = rbind(lad_0,lad_1, lad_2, lad_3, lad_4, lad_5)
+colnames(lads) = c("lad_levels", "angle", "freq")
+lads$lad_levels = as.factor(lads$lad_levels)
+levels(lads$lad_levels) = c("uniform", "spherical", "extremophile", "plagiophile", "horizontal", "vertical")
+lads$freq[lads$lad_levels == "vertical"] = 0.035*lads$freq[lads$lad_levels == "vertical"]
+lads$freq[lads$lad_levels == "horizontal"] = 0.035*lads$freq[lads$lad_levels == "horizontal"]
+```
+
+```{r fig.height=3.3, fig.width=3.1, message=TRUE, warning=TRUE}
+
+ggplot(data = lads, 
+       aes(x = angle, y = freq, col = lad_levels)) +
+  geom_line(size =  0.7) + 
+  ylim(c(0, 0.03)) + scale_x_continuous(breaks = seq(0, 90, 15)) + scale_y_continuous(sec.axis = sec_axis(~.,  name = "", breaks = c())) +
+  labs(y = "Frequency",
+       x = "leaf inclination angle [°]",
+       colour = "LAD") +
+  theme_bw() +
+  scale_color_brewer(palette="Dark2") +
+  theme_bw() + 
+  myprettyoptions + theme(legend.position="bottom")
+```
+
+```{r}
+summary(lads[lads$lad_levels == "Spherical",])
+```
+
+
+```{r}
+mean(elm$elm_refl[elm$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(populus$populus_refl[populus$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(deciduous$deciduous_refl[deciduous$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(eucalyptus$eucalyptus_refl[eucalyptus$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(picea$picea_refl[picea$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(beech$beech_refl[beech$wavelength %in% c(0.4,0.5,0.6,0.7)])
+```
+
+
+```{r}
+mean(elm$elm_transm[elm$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(populus$populus_transm[populus$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(deciduous$deciduous_transm[deciduous$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(eucalyptus$eucalyptus_transm[eucalyptus$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(picea$picea_transm[picea$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(beech$beech_transm[beech$wavelength %in% c(0.4,0.5,0.6,0.7)])
+```
+
+```{r}
+mean(elm$elm_abs[elm$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(populus$populus_abs[populus$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(deciduous$deciduous_abs[deciduous$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(eucalyptus$eucalyptus_abs[eucalyptus$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(picea$picea_abs[picea$wavelength %in% c(0.4,0.5,0.6,0.7)])
+mean(beech$beech_abs[beech$wavelength %in% c(0.4,0.5,0.6,0.7)])
+```
+
+
+
+
+
+
