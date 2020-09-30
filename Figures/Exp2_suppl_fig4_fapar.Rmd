@@ -1,0 +1,384 @@
+
+2traits_lad_lop_db
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(gplots)
+library(RColorBrewer)
+library(cowplot)
+
+#dat = read.csv("Data_for_figures/profiles_exp2_2d.csv")
+dat = read.csv("Data_for_figures/50nm/profiles.csv")
+
+Ncomb = 63
+Nscenes = 1
+Nspecies = 16
+WAVE_RANGE = "VIS"
+```
+
+
+```{r}
+ex = read.csv("Data_for_figures/50nm/profiles_exp1_lai_90.csv")
+summary(ex$albedo[ex$band %in% c(1:7) & ex$num_of_species == 1])
+```
+```{r}
+summary(dat$albedo[dat$band %in% c(1:7)])
+```
+```{r}
+summary(dat$albedo[dat$band %in% c(1:7) & dat$num_of_species == 1])
+```
+
+```{r}
+read_solar_irradiance = function(sol_path = solar_path, bands = "all") {
+  srad = read.csv(sol_path)
+  srad = srad[srad$wavelength < 3,c(2:3)]
+  srad$wavelength = round(srad$wavelength, 3)
+  ## Pick only the irradiance between 400 and 2500 nm at 50nm range
+  srad = srad[unlist(sapply(c(8:50)/20, function(i) which(abs(srad$wavelength-i)==min(abs(srad$wavelength-i))))),]
+  srad = aggregate(srad, by = list(srad$wavelength), FUN = "mean")[,c(2:3)]
+  if (bands == "VIS") {
+  
+  srad$irradiance = srad$irradiance/sum(srad$irradiance[1:7])
+  srad$irradiance[8:43] = 0
+  
+  } else srad$irradiance = srad$irradiance/sum(srad$irradiance)
+  
+  return(srad$irradiance)
+}
+solar_path = "./Data_for_figures/Solar_irradiance.csv"
+solar_irradiance = read_solar_irradiance(bands = "all")
+dat$albedo = (dat$albedo)*solar_irradiance[dat$band]
+```
+
+
+```{r}
+solar_irradiance
+```
+```{r}
+summary(dat$albedo[dat$num_of_species == 1])
+```
+
+
+```{r}
+
+dat = aggregate(albedo ~ height_m + num_of_sp1 + num_of_sp2 + species + num_of_species + pos + idSimulation, data = dat, FUN = "sum")
+
+dat = aggregate(albedo ~ num_of_sp1 + num_of_sp2 + species + num_of_species, data = dat, FUN = "mean")
+```
+
+
+```{r}
+
+dat$num_of_species = as.factor(dat$num_of_species)
+
+dat$lad = floor(dat$species/4)
+dat$lad = as.factor(dat$lad)
+levels(dat$lad) = c("Spherical", "Uniform", "Vertical", "Horizontal")
+
+dat$lop = dat$species %% 4
+
+dat$lop = as.factor(dat$lop)
+levels(dat$lop) = c("beech", "elm", "aspen", "pine")
+
+colnames(dat)[colnames(dat) == "num_of_sp1"] = "diversity_LAD"
+colnames(dat)[colnames(dat) == "num_of_sp2"] = "diversity_LOP"
+
+dat$species = as.factor(dat$species)
+
+#levels(dat$species) = c("Spherical", "Uniform", "Vertical", "Horizontal", "Ellipsoidal", "Extremophile")
+#levels(dat$species) = c("3m", "5m", "7m", "9m", "11m", "13m")
+#levels(dat$species) = c("beech", "dec", "elm", "euc", "aspen", "pine")
+library(dplyr)
+subdat = dat
+
+#black_albedo = dat[dat$band == WAVE_RANGE &  dat$scenetype == 2 & dat$height_m != 1 & dat$random_seed == 0, "albedo"]
+#subdat$albedo = subdat$albedo - black_albedo
+#black_abs = dat[dat$band == WAVE_RANGE &  dat$scenetype == 2 & dat$height_m != 1 & dat$random_seed == 0, "abs_mean"]
+#subdat$abs_mean = subdat$abs_mean - black_abs
+```
+
+
+```{r}
+#vertical_pos = sapply(unique(subdat$pos), function(x) sum(subdat$lad[subdat$pos == x] == "Vertical") > 0)
+#subdat = subdat[subdat$pos %in% unique(subdat$pos)[!vertical_pos],]
+
+#subdat$lad = droplevels(subdat$lad)
+
+#subdat_crown = subdat[subdat$height_m != 1,]
+```
+
+
+
+We model scenes with trees' species that have:
+
+* 1-4 levels of leaf optical properties (LOP)
+* 1-4 levels of leaf angle distribution (LAD)
+
+#![Number of species](/Users/Gast/Documents/R_notebooks/DART_test/Num_of_sp.png)
+
+Here we present results for
+
+* white background (lambertian, reflectance = 1)
+* visible wavelength range (400-700 nm)
+* direct sunlight, 0? zenith angle
+
+&nbsp;
+
+
+## Albedo of different diversities
+
+```{r}
+my_palette = brewer.pal(9, "YlGn")[9:1]
+
+vector_a = subdat$diversity_LAD
+vector_b = subdat$diversity_LOP
+
+albmat = sapply(unique(vector_a), function (a) 
+  sapply(unique(vector_b), function(b) 
+    mean( subdat$albedo[vector_a == a & vector_b== b])))
+
+heatmap.2(t(albmat),margins=c(7,10), scale="none", labCol = unique(vector_b),
+          labRow = unique(vector_a),
+          dendrogram="none",  trace="none", xlab = "LAI richness", 
+          ylab = "LAD richness", main = "Albedo", density.info="none", Colv = NA, Rowv = NA,
+          col=my_palette)
+```
+
+```{r}
+mean( subdat$albedo[subdat$diversity_LAD == 1 & subdat$diversity_LOP== 4])
+```
+
+```{r}
+(mean( subdat$albedo[subdat$diversity_LAD == 4 & subdat$diversity_LOP== 1]) - mean( subdat$albedo[subdat$diversity_LAD == 1 & subdat$diversity_LOP== 1]))/mean( subdat$albedo[subdat$diversity_LAD == 1 & subdat$diversity_LOP== 1])
+```
+
+
+Uncertanties:
+```{r}
+my_palette = brewer.pal(9, "YlOrRd")[1:9]
+
+albmat = sapply(unique(vector_a), function (a) 
+  sapply(unique(vector_b), function(b) 
+    diff(range( subdat$albedo[vector_a == a & vector_b== b]))))
+
+heatmap.2(t(albmat),margins=c(7,10), scale="none", labCol = unique(vector_b),
+          labRow = unique(vector_a),
+          dendrogram="none",  trace="none", xlab = "Diversity of LOP", 
+          ylab = "Diversity of LAD", main = "Range of albedo values", density.info="none", Colv = NA, Rowv = NA,
+          col=my_palette)
+
+```
+
+```{r}
+wilcox.test(unlist(subset(subdat, diversity_LAD == 1 & diversity_LOP == 1, select = albedo)), 
+            unlist(subset(subdat, diversity_LAD == 1 & diversity_LOP == 1, select = albedo)))
+
+wilcox.test(unlist(subset(subdat, diversity_LAD == 1 & diversity_LOP == 1, select = albedo)), 
+            unlist(subset(subdat, diversity_LAD == 4 & diversity_LOP == 1, select = albedo)))
+```
+
+```{r message=FALSE, warning=FALSE}
+library(ggthemes) # Load
+ggplot(data = subdat, 
+       aes(y = albedo, col = num_of_species, fill = num_of_species)) + 
+  geom_boxplot(alpha = 0.7, width = 0.01, size = 0.2, col = "black", outlier.size = 0.1) +
+  scale_y_continuous( breaks = seq(0,0.7,0.1), sec.axis = sec_axis(~.*0, name = "LAD richness")) +
+  
+  facet_grid(diversity_LAD~diversity_LOP, scales = "free_y", space = "free_y", switch = "x") +  
+  ylab("albedo") + xlab("LAI richness") + theme_minimal() +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral") + 
+  labs(fill = "Number of\n PFTs") +
+  theme(panel.grid.major = element_line(colour = "grey"), panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5), axis.text.y.right = element_blank(),
+        axis.title.x = element_text(size=16), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+
+
+## Optional
+
+## Albedo of different species
+
+```{r}
+my_palette = brewer.pal(9, "YlGn")[9:1]
+
+vector_a = subdat$lad
+vector_b = subdat$lop
+
+albmat = sapply(unique(vector_a), function (a) 
+  sapply(unique(vector_b), function(b) 
+    mean( subdat$albedo[vector_a == a & vector_b== b])))
+
+heatmap.2(t(albmat),margins=c(7,10), scale="none", labCol = unique(vector_b),
+          labRow = unique(vector_a),
+          dendrogram="none",  trace="none", xlab = "LOP", 
+          ylab = "LAD", main = "Albedo", density.info="none", Colv = NA, Rowv = NA,
+          col=my_palette)
+```
+
+```{r}
+my_palette = brewer.pal(9, "YlOrRd")[1:9]
+
+albmat = sapply(unique(vector_a), function (a) 
+  sapply(unique(vector_b), function(b) 
+    diff(range( subdat$albedo[vector_a == a & vector_b== b]))))
+
+heatmap.2(t(albmat), margins=c(7,10), scale="none", labCol = unique(vector_b),
+          labRow = unique(vector_a),
+          dendrogram="none",  trace="none", xlab = "LOP", 
+          ylab = "LAD", main = "Range of albedo values", density.info="none", Colv = NA, Rowv = NA,
+          col=my_palette)
+
+```
+
+
+
+```{r}
+ggplot(data = subdat, 
+       aes(y = albedo, col = num_of_species, fill = num_of_species)) + 
+  geom_boxplot(alpha = 0.7, width = 0.01, size = 0.2, col = "black", outlier.size = 0.1) +
+  scale_y_continuous( breaks = seq(0,0.7,0.1), sec.axis = sec_axis(~.*0, name = "Diversity LAD")) +
+  
+  facet_grid(diversity_LAD~diversity_LOP, scales = "free_y", space = "free_y", switch = "x", margins = T, as.table = T) +  
+  ylab("albedo") + xlab("Diversity LOP") + theme_minimal() +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral") + 
+  labs(fill = "# Species") +
+  theme(panel.grid.major = element_line(colour = "grey"), panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5), axis.text.y.right = element_blank(),
+        axis.title.x = element_text(size=16), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+
+
+&nbsp;
+
+## Absorption of the trees
+
+&nbsp;
+
+
+
+**Example 2:** Mean absorption of trees with **pine** LOP and different LAD in different mixtures
+
+```{r}
+round_nice = function(x, k) trimws(format(round(x, k), nsmall=k))
+
+len_lop = length(levels(subdat_crown$lop))
+len_lad = length(levels(subdat_crown$lad))
+
+ann_text_first <- data.frame(label = as.vector(sapply(levels(subdat_crown$lop), function(x) 
+  unlist(sapply(
+    levels(subdat_crown$lad), function(y)
+      round_nice( sum(subdat_crown$abs_mean[subdat_crown$lop == x & subdat_crown$lad == y & 
+                                         subdat_crown$num_of_species == 1]), 2 ))
+  ))), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), len_lad*len_lop),
+  lad = factor(rep(levels(subdat_crown$lad), len_lop),
+               levels = levels(subdat_crown$lad)),
+  lop = factor(rep(levels(subdat_crown$lop), each = len_lad),
+               levels = levels(subdat_crown$lop)))
+
+ann_text_last <- data.frame(label = as.vector(sapply(levels(subdat_crown$lop), function(x) 
+  unlist(sapply(
+    levels(subdat_crown$lad), function(y)
+      round_nice( sum(subdat_crown$abs_mean[subdat_crown$lop == x & subdat_crown$lad == y & 
+                                         subdat_crown$num_of_species == len_lad*len_lop]), 2 ))
+  ))), 
+  num_of_species = rep(factor(len_lad*len_lop,levels = levels(subdat_crown$num_of_species)), len_lad*len_lop),
+  lad = factor(rep(levels(subdat_crown$lad), len_lop),
+               levels = levels(subdat_crown$lad)),
+  lop = factor(rep(levels(subdat_crown$lop), each = len_lad),
+               levels = levels(subdat_crown$lop)))
+```
+
+
+
+```{r fig.height=7, fig.width=12}
+LOP = "pine"
+
+ggplot(data = subdat[subdat$lop == LOP,], 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  facet_wrap(~lad,nrow=1) + ggtitle("Leaf angle distributions") +
+  
+  geom_text(data  = ann_text_first[ann_text_first$lop == LOP,], mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -2, vjust   = -5, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last[ann_text_last$lop == LOP,], mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -2, vjust   = -3, show.legend = FALSE, size = 4.5) +
+  
+  ylab("proportion of absorbed light")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+Solid lines show mean and error bars show standard deviation of absorption values.
+
+
+**Example 3:** Mean absorption of trees with **vertical** LAD and different LOP in different mixtures
+
+```{r fig.height=7, fig.width=12}
+LAD = "Vertical"
+
+ggplot(data = subdat[subdat$lad == LAD,], 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  facet_wrap(~lop,nrow=1) +  
+  geom_text(data  = ann_text_first[ann_text_first$lad == LAD,], mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -2, vjust   = -5, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last[ann_text_last$lad == LAD,], mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -2, vjust   = -3, show.legend = FALSE, size = 4.5) +
+  ylab("proportion of absorbed light")  + theme_bw() + xlab("height, m") +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+
+
+##  Mean absorption of trees with different LAD and different LOP in different mixtures
+
+```{r fig.height=7, fig.width=5}
+
+ggplot(data = subdat, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  scale_y_continuous(breaks = seq(0,0.175,0.05)) +
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -2, vjust   = -5, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -2, vjust   = -3, show.legend = FALSE, size = 4.5) +
+  facet_grid(lop~lad, scales = "free_x", space = "free_x") +  
+  ylab("proportion of absorbed light")  + theme_bw() + xlab("height, m") +
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral") + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))
+```
+
+
+
+
+
+

@@ -1,0 +1,410 @@
+
+---
+title: "Impacts of LOP differences on the net biodiversity effect<br> &nbsp;"
+author: "Elena Plekhanova"
+date: "`r format(Sys.time(), '%B %e, %Y')`"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+  html_notebook:
+    code_folding: hide
+subtitle: <center> ---------------- 2D LOP experiment ---------------- </center>
+fontsize: 14pt
+---
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 14px;
+  }
+td {  /* Table  */
+  font-size: 10px;
+}
+h1.title {
+  font-size: 32px;
+  color: DarkRed;
+}
+
+h1.subtitle {
+  font-size: 32px;
+  color: DarkRed;
+}
+
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkRed;
+}
+h2 { /* Header 2 */
+    font-size: 23px;
+  color: DarkRed;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkRed;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+
+&nbsp;
+
+
+We conducted an experiment, where we wanted to investigate how LOP of two "species" contribute to the net biodiversity effect. 
+For this, we created around 10,000 simulations, where we vary:
+
+* LOP of 1st "species"
+  * reflectance of 1st "species" from 0 to 1 with interval 0.1
+  * anglesittance of 1st "species" from 0 to (1 - reflectance) with interval 0.1
+* LOP of 2nd "species"
+
+For each combination of LOP, we created the scenes of monocultures and the scene of combination of this two species.
+
+Other parameters of simulation:
+
+* white Lambertian background
+* number of trees = 4, repetitive scene
+* no atmosphere
+* direct sun, 0' zenith angle
+
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(gplots)
+library(RColorBrewer)
+library(cowplot)
+library(viridis)
+library(dplyr)
+
+Nspecies = 121
+Nscenes = 1
+```
+
+
+```{r}
+solar_path = "./Data_for_figures/Solar_irradiance.csv"
+read_solar_irradiance = function(sol_path = solar_path, bands = "all") {
+  srad = read.csv(sol_path)
+  srad = srad[srad$wavelength < 3,c(2:3)]
+  srad$wavelength = round(srad$wavelength, 3)
+  ## Pick only the irradiance between 400 and 2500 nm at 50nm range
+  srad = srad[unlist(sapply(c(8:50)/20, function(i) which(abs(srad$wavelength-i)==min(abs(srad$wavelength-i))))),]
+  srad = aggregate(srad, by = list(srad$wavelength), FUN = "mean")[,c(2:3)]
+  if (bands == "VIS") {
+  
+  srad$irradiance = srad$irradiance/sum(srad$irradiance[1:7])
+  srad$irradiance[8:43] = 0
+  
+  } else srad$irradiance = srad$irradiance/sum(srad$irradiance)
+  
+  return(srad$irradiance)
+}
+solar_irradiance = read_solar_irradiance(bands = "all")
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+dat = read.csv(
+    paste0("./Data_for_figures/Fig5_2trees/profiles_2d_angles.csv"))
+dat$num_of_species = as.factor(dat$num_of_species)
+dat$albedo = dat$albedo*solar_irradiance[dat$band]
+dat = aggregate(albedo ~ height_m + pos + angles + angles2 + num_of_species + species + idSimulation, 
+                   data = dat, FUN = "sum")
+
+## Correct ordering of angles2
+mas2 = read.csv("./Data_for_figures/Fig5_2trees/P_fileName1_angles2.csv", stringsAsFactors = F)
+colnames(mas2) = c("id", "txt")
+
+mas2$txt = sapply(mas2$txt, function(x) substr(x, 1, nchar(x) - 4))
+mas2$txt = as.numeric(mas2$txt)
+
+mas2 = mas2[mas2$id %in% unique(dat$angles2),]
+
+
+
+dat$angles2 = as.factor(dat$angles2)
+levels(dat$angles2)
+levels(dat$angles2) = mas2$id[match(mas2$id, mas2$id[order(mas2$txt, decreasing = T)])]
+dat$angles2 = as.numeric(as.character(dat$angles2))
+levels(as.factor(dat$angles2))
+
+dat$angles[dat$angles == 1] = 11
+dat$angles2[dat$angles2 == 1] = 11
+
+dat$angles = 0.1*(dat$angles - 11)
+dat$angles2 = 0.1*(dat$angles2 - 11)
+
+#dat$species = as.factor(dat$species)
+#levels(dat$species) = c("specie1", "specie2")
+
+#dat$angles_refl[dat$species == 0] = paste0(dat$angles[dat$species == 0], "_", dat$refl1[dat$species == 0])
+#dat$angles_refl[dat$species == 1] = paste0(dat$angles2[dat$species == 1], "_", dat$refl2[dat$species == 1])
+dat$species[dat$species == 0] = paste0(dat$angles[dat$species == 0], "_")
+dat$species[dat$species == 1] = paste0(dat$angles2[dat$species == 1], "_")
+
+
+
+subdat_crown = as.data.frame(dat[dat$height_m != 1,])
+```
+
+```{r}
+unique(dat$angles2)
+```
+
+
+
+
+```{r message=FALSE, warning=FALSE}
+
+subdat_crown$pos = subdat_crown$idSimulation
+aggdat = aggregate(albedo ~  pos + angles + angles2 + num_of_species, 
+                   data = subdat_crown, FUN = "mean")
+
+res_tab = lapply(unique(aggdat$pos[as.numeric(aggdat$num_of_species) > 1]), function(POS) {
+
+  av_mixture = subset(aggdat, pos == POS, albedo)
+
+  abs_of_monocultures = lapply(unique(subdat_crown$species[subdat_crown$pos == POS]), function(x) {
+    position_of_mon = subdat_crown$pos[subdat_crown$species == x & 
+                                         subdat_crown$num_of_species == 1][1]
+    res = subset(aggdat, pos == position_of_mon, select = albedo)
+    return(res)
+  })
+    
+  av_monocultures = apply(do.call(rbind.data.frame, list(abs_of_monocultures)), 1, mean)
+  
+  one_mix = data.frame( ( sapply( c(1:nrow(av_mixture)), function(i) -(av_mixture[i,1] - av_monocultures[i])*100/av_monocultures[i] ) ), c(1:nrow(av_mixture)), 
+                        rep(POS, nrow(av_mixture)))
+  colnames(one_mix) = c("abs_mean", "height_m", "pos")
+  
+  one_mix$diff_sum = rep(round(sum(one_mix$abs_mean), 7), nrow(one_mix))
+  one_mix$num_of_species = rep(aggdat$num_of_species[aggdat$pos == POS][1], nrow(one_mix))
+  one_mix$angles = rep(aggdat$angles[aggdat$pos == POS][1], nrow(one_mix))
+  one_mix$angles2 = rep(aggdat$angles2[aggdat$pos == POS][1], nrow(one_mix))
+  
+  return(one_mix)
+})
+res_tab = do.call(rbind.data.frame, res_tab)
+
+```
+
+
+```{r}
+res_tab$both_angles = sapply(c(1:nrow(res_tab)), function(i) {
+  ab = sort(c(res_tab$angles[i], res_tab$angles2[i]))
+  a = ab[1]
+  b = ab[2]
+  return(100*a + b)
+  })
+
+
+```
+
+
+```{r fig.height=3, fig.width=3}
+aggdat = aggregate(diff_sum ~ pos + angles + angles2 + both_angles, 
+                   data = res_tab, FUN = "mean")
+aggdat$diff_angles = abs(aggdat$angles - aggdat$angles2)
+aggdat = aggdat[aggdat$diff_angles != 0,]
+aggdat$diff_angles = as.factor(aggdat$diff_angles)
+aggdat = aggregate(diff_sum ~ both_angles + diff_angles, 
+                   data = aggdat, FUN = "mean")
+
+my_palette = brewer.pal(9,"Oranges")
+#my_palette = c("white", "#1B9E77")
+my_palette=colorRampPalette(my_palette)(11)
+mt = aggdat %>% mutate(diff_angles = diff_angles) %>%
+  group_by(diff_angles) %>% 
+  mutate(med_diffsum = median(diff_sum))
+ggplot(mt, aes(diff_angles, diff_sum, group = diff_angles, fill = as.factor(med_diffsum))) +       geom_boxplot(width=0.5, alpha = 1, size = 0.65) + 
+  scale_fill_manual(values = my_palette) + 
+  xlab("Gap fraction distance") + ylab("shortwave absorptance change, %") + theme_bw() +
+  theme(
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=10), axis.text.x  = element_text(size=8),
+        axis.title.y = element_text(size=10), axis.text.y  = element_text(size=8),
+        legend.position = "none")
+```
+
+## Without vertical LAD
+
+
+```{r fig.height=2.5, fig.width=3}
+aggdat = aggregate(diff_sum ~ pos + angles + angles2 + both_angles, 
+                   data = res_tab, FUN = "mean")
+aggdat$diff_angles = abs(aggdat$angles - aggdat$angles2)
+aggdat = aggdat[aggdat$diff_angles != 0,]
+aggdat$diff_angles = as.factor(aggdat$diff_angles)
+aggdat = aggdat[(aggdat$angles!= 0.0) & (aggdat$angles2!= 0.0),]
+aggdat = aggregate(diff_sum ~ both_angles + diff_angles, 
+                   data = aggdat, FUN = "mean")
+
+
+my_palette = brewer.pal(9,"Oranges")
+#my_palette = c("white", "#1B9E77")
+my_palette=colorRampPalette(my_palette)(10)
+mt = aggdat %>% mutate(diff_angles = diff_angles) %>%
+  group_by(diff_angles) %>% 
+  mutate(med_diffsum = median(diff_sum))
+ggplot(mt, aes(diff_angles, diff_sum, group = diff_angles, fill = as.factor(med_diffsum))) +       geom_boxplot(width=0.5, alpha = 1, size = 0.65) + 
+  scale_fill_manual(values = my_palette) + 
+  xlab("Gap fraction distance") + ylab("shortwave absorptance change, %") + theme_bw() +
+  theme(panel.grid.minor.y = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=10), axis.text.x  = element_text(size=8),
+        axis.title.y = element_text(size=10), axis.text.y  = element_text(size=8),
+        legend.position = "none")
+```
+
+## What combination of leaf optical properties contributes to this difference?
+
+&nbsp;
+H0: $abs_{mix-mon}$ mainly dependant on difference between absorptances of 2 species and their anglesittances.
+
+To check if this sentance holds for our simulations, we represented difference between mixtures and monocultures in corresponding axes:
+
+```{r fig.height=7, fig.width=7, message=FALSE, warning=FALSE}
+
+aggdat = aggregate(diff_sum ~ pos + angles + angles2, 
+                   data = res_tab, FUN = "mean")
+aggdat$sp1 =  round( abs(aggdat$angles) , 2)
+#aggdat$sp1 =  round( abs(aggdat$refl1 - aggdat$refl2) , 2)
+aggdat$sp2 =  round( abs(aggdat$angles2) , 2)
+
+vector_a = aggdat$sp1
+vector_b = aggdat$sp2
+
+albmat = sapply(sort(unique(vector_a)), function (a) 
+  sapply(sort(unique(vector_b)), function(b) 
+    mean( aggdat$diff_sum[vector_a == a & vector_b== b])))
+
+my_palette = brewer.pal(7,"Greens")
+my_palette=colorRampPalette(my_palette)(100)
+
+lmat = rbind(c(0,3),c(2,1),c(0,4))
+lwid = c(1.5,4)
+lhei = c(1.5,4,1)
+
+
+heatmap.2(t(albmat),margins=c(5,5), scale="none", labCol = sort(unique(vector_b)),
+          labRow = sort(unique(vector_a)),
+          dendrogram="none",  trace="none", xlab = "Difference in absorptance", key.title = NA, keysize = 1,
+          lmat = lmat, lwid = lwid, lhei = lhei,
+          key.xlab = "Absorption of mixtires - monocultures",
+          ylab = "Difference in anglesittance", density.info="none", Colv = NA, Rowv = NA,
+          col = my_palette, symm=F,symkey=F,symbreaks=F)
+
+library(plotly)
+p <- plot_ly(z = ~t(albmat)) %>% add_surface() %>%
+  layout(
+    title = "Difference in absorptance between mixtures and monocultures",
+    scene = list(
+      xaxis = list(title = "Difference in absorption"),
+      yaxis = list(title = "Difference in anglesittance"),
+      zaxis = list(title = "Difference")
+    ))
+#p
+
+```
+
+On natural background
+
+## Optional
+
+```{r}
+brewer.pal(n = 8, name = "Dark2")
+```
+
+
+```{r fig.height=4, fig.width=8}
+
+
+aggdat = aggregate(abs_mean ~ height_m + pos + angles + angles2 + num_of_species + species, 
+                   data = subdat_crown, FUN = "mean")
+res_tab = lapply(unique(aggdat$pos[as.numeric(aggdat$num_of_species) > 1]), function(POS) {
+
+      av_mix = subset(aggdat, pos == POS)
+      sps = unique(av_mix$species)
+      av_mix_sp1 = av_mix$abs_mean[av_mix$species == sps[1]]
+      av_mix_sp2 = av_mix$abs_mean[av_mix$species == sps[2]]
+      av_mon_sp1 = subset(aggdat, species == sps[1] &  num_of_species == 1)$abs_mean
+      av_mon_sp2 = subset(aggdat, species == sps[2] &  num_of_species == 1)$abs_mean
+
+      one_mix = data.frame(cbind(c((av_mix_sp1 - av_mon_sp1)[1], (av_mix_sp2 - av_mon_sp2)[1]), 
+                                 c(av_mon_sp1, av_mon_sp2),
+                                 c(1, 0),
+                                 rep(POS, 2) ))
+      
+      colnames(one_mix) = c("abs_mean", "mon_abs", "sp_a" ,"pos")
+      one_mix$diff_mon = (av_mon_sp1 - av_mon_sp2)[1] ## difference in absorbtion of monocultures
+      one_mix$diff_mix = (av_mix_sp1 - av_mix_sp2)[1] ## difference in absorbtion of mixtures
+      one_mix$gain_mix = (av_mix_sp1 - av_mon_sp1)[1] + (av_mix_sp2 - av_mon_sp2)[1] ## difference in absorbtion of mixtures
+      one_mix$species = sps
+      one_mix$angles = av_mix$angles
+      one_mix$angles2 = av_mix$angles2
+      one_mix$name_species = paste0(sps[1], " + ", sps[2])
+      
+      return(one_mix)
+    })
+
+res_tab = do.call(rbind.data.frame, res_tab)
+
+aggdat = aggregate(abs_mean ~ pos + angles + angles2 + sp_a, 
+                   data = res_tab, FUN = "mean")
+aggdat$maxangle = as.factor(sapply(c(1:nrow(aggdat)), function(i) max(aggdat$angles[i], aggdat$angles2[i])))
+
+aggdat$diff_angles = abs(aggdat$angles - aggdat$angles2)
+aggdat$diff_angles = as.factor(aggdat$diff_angles)
+my_palette = brewer.pal(9,"Greens")
+my_palette=colorRampPalette(my_palette)(10)
+mt = aggdat %>% mutate(diff_angles = diff_angles) %>%
+  group_by(diff_angles) %>% 
+  mutate(med_diffsum = median(abs_mean))
+ggplot(mt, aes(diff_angles, abs_mean, group = diff_angles, col = sp_a)) + geom_point() + 
+  xlab("Difference in gap fraction") + ylab("Absorption of mix - mon") + theme_bw() +
+  theme(panel.grid.minor.y = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=10), axis.text.x  = element_text(size=8),
+        axis.title.y = element_text(size=10), axis.text.y  = element_text(size=8))
+```
+
+
+
+```{r}
+aggdat$maxangle = as.factor(sapply(c(1:nrow(aggdat)), function(i) max(aggdat$angles[i], aggdat$angles2[i])))
+
+aggdat2 = aggregate(diff_sum ~ diff_angles + maxangle, 
+                   data = aggdat, FUN = "mean")
+
+ggplot(aggdat2, aes(diff_angles, diff_sum, group = diff_angles, col = maxangle)) + geom_point(size = 2) + geom_line(aes(group = maxangle)) + xlab("Difference in gap fraction") + ylab("FAPAR change") + theme_bw()
+```
+
+
+```{r fig.height=10, fig.width=16, message=FALSE, warning=FALSE}
+
+
+
+heatmap.2(t(albmat),margins=c(7,7), scale="none", labCol = sort(unique(vector_b)),
+          labRow = sort(unique(vector_a)),
+          dendrogram="none",  trace="none", xlab = "Difference in absorption", key.title = NA, keysize = 1, 
+          lmat = lmat, lwid = lwid, lhei = lhei,
+          cexRow = 1.8, cexCol = 1.8,
+          key.xlab = "FAPAR change", par = par(cex.lab = 1.8, cex.axis = 1.8),
+          ylab = "Difference in anglesittance", density.info="none", Colv = NA, Rowv = NA,
+          col = my_palette, symm=F,symkey=F,symbreaks=F)
+par(cex.lab = 18)
+
+```
+
+
+
+&nbsp;
+Although the most of variation indeed explained by these axes, we can see some non-linearity in this plot, which has not been explained yet.
+&nbsp;

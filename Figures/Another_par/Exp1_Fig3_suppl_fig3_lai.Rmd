@@ -1,0 +1,479 @@
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(viridis)
+library(plotly)
+
+#path_lai = "./Data_for_figures/profiles_lai6_90.csv"
+#path_lad = "./Data_for_figures/profiles_lad6_90.csv"
+
+path_lai = "../Data_for_figures/50nm/another_param/profiles_exp1_lai_90.csv"
+path_lad = "../Data_for_figures/50nm/another_param/profiles_exp1_lad_90.csv"
+path_lop = "../Data_for_figures/50nm/another_param/profiles_exp1_lop6_90.csv"
+
+path_lai_30 = "../Data_for_figures/50nm/another_param/profiles_exp1_lai_30.csv"
+path_lad_30 = "../Data_for_figures/50nm/another_param/profiles_exp1_lad_30.csv"
+path_lop_30 = "../Data_for_figures/50nm/another_param/profiles_exp1_lop6_30.csv"
+
+path_lai_ov = "../Data_for_figures/50nm/another_param/profiles_exp1_lai_ov.csv"
+path_lad_ov = "../Data_for_figures/50nm/another_param/profiles_exp1_lad_ov.csv"
+path_lop_ov = "../Data_for_figures/50nm/another_param/profiles_exp1_lop6_ov.csv"
+
+
+solar_path = "../Data_for_figures/Solar_irradiance.csv"
+
+
+
+Ncomb = 63
+Nscenes = 3
+Nspecies = 6
+#WAVE_RANGE = "VIS"
+
+read_data = function(path, scenetype_var = 1) {
+  dat = read.csv(path)
+  cumsumm = cumsum(unlist(sapply(c(1:Nspecies), function(x) choose(Nspecies, x))))
+  the_list_of_comb = sapply(c(1:Nspecies), function(k) sapply(c(1:choose(Nspecies, k)), function(i) combn(Nspecies, k)[,i]))
+  the_list_of_sp = unlist(sapply(c(2:Nspecies), function(j) { x = the_list_of_comb[[j]]
+  res = split(x, rep(1:ncol(x), each = nrow(x)))
+    return(res)}), recursive = FALSE)
+  dat$num_of_species = as.factor(dat$num_of_species)
+  dat$species = as.factor(dat$species)
+  subdat = dat[dat$scenetype == scenetype_var,]
+  subdat_crown = as.data.frame(subdat[subdat$height_m != 1,])
+
+  return(subdat_crown)
+}
+
+
+read_solar_irradiance = function(sol_path = solar_path, bands = "all") {
+  srad = read.csv(sol_path)
+  srad = srad[srad$wavelength < 3,c(2:3)]
+  srad$wavelength = round(srad$wavelength, 3)
+  ## Pick only the irradiance between 400 and 2500 nm at 50nm range
+  srad = srad[unlist(sapply(c(8:50)/20, function(i) which(abs(srad$wavelength-i)==min(abs(srad$wavelength-i))))),]
+  srad = aggregate(srad, by = list(srad$wavelength), FUN = "mean")[,c(2:3)]
+  if (bands == "VIS") {
+  
+  srad$irradiance = srad$irradiance/sum(srad$irradiance[1:7])
+  srad$irradiance[8:43] = 0
+  
+  } else srad$irradiance = srad$irradiance/sum(srad$irradiance)
+  
+  return(srad$irradiance)
+}
+
+read_and_agg_data = function(path, scenetype_var = 1) {
+  subdat_crown = read_data(path, scenetype_var)
+  aggdat = aggregate(albedo ~ pos + num_of_species + band, data = subdat_crown, FUN = "mean")
+  ## ScalingVIS and NIR ranges
+  
+  solar_irradiance = read_solar_irradiance()
+  aggdat$albedo = (aggdat$albedo)*solar_irradiance[aggdat$band]
+  
+  aggdat = aggregate(albedo ~ pos + num_of_species, data = aggdat, FUN = "sum")
+  
+  cumsumm = cumsum(unlist(sapply(c(1:Nspecies), function(x) choose(Nspecies, x))))
+  diffs = lapply(c(2:Nspecies), function(k) sapply(c(1:choose(Nspecies, k)), function(i) {
+    mix = aggdat$albedo[i+cumsumm[k-1]]
+    av_mon = sum(aggdat$albedo[combn(Nspecies, k)[,i]])/k
+    ratio = (mix - av_mon) / av_mon # calculating the gained radiation
+    perc_ratio = ratio * 100 # in percent
+    return(perc_ratio)
+  }))
+  diffs = as.data.frame(cbind(unlist(diffs), aggdat$num_of_species[-c(1:6)]))
+  colnames(diffs) = c("differences", "num_of_species")
+  diffs$num_of_species = as.factor(diffs$num_of_species)
+  return(diffs)
+}
+
+agg_fapar_data = function(path, scenetype_var = 1) {
+  subdat_crown = read_data(path, scenetype_var)
+  aggdat = aggregate(albedo ~ pos + num_of_species + band, data = subdat_crown, FUN = "mean")
+  
+  solar_irradiance = read_solar_irradiance(bands = "VIS")
+  aggdat$fapar = (aggdat$albedo)*solar_irradiance[aggdat$band]
+
+  aggdat = aggregate(fapar ~ pos + num_of_species, data = aggdat, FUN = "sum")
+  aggdat$fapar = 1 - aggdat$fapar
+  
+  cumsumm = cumsum(unlist(sapply(c(1:Nspecies), function(x) choose(Nspecies, x))))
+  diffs = lapply(c(2:Nspecies), function(k) sapply(c(1:choose(Nspecies, k)), function(i) {
+    mix = aggdat$fapar[i+cumsumm[k-1]]
+    av_mon = sum(aggdat$fapar[combn(Nspecies, k)[,i]])/k
+    ratio = (mix - av_mon) / av_mon # calculating the gained radiation
+    perc_ratio = ratio * 100 # in percent
+    return(perc_ratio)
+  }))
+
+  diffs = as.data.frame(cbind(unlist(diffs), aggdat$num_of_species[-c(1:6)]))
+  colnames(diffs) = c("fapar_differences", "num_of_species")
+  #diffs$fapar_differences = - diffs$fapar_differences
+  return(diffs$fapar_differences)
+}
+
+background_dat = function(scenetype_var) {
+  # Different backgrounds
+
+  ### LAI --------------------------------------------------------
+  lai = read_and_agg_data(path_lai, scenetype_var)
+  lai$illumination = "direct sun, 0? zenith angle"
+  lai$fapar_diffs = agg_fapar_data(path_lai, scenetype_var)
+  
+  lai30 = read_and_agg_data(path_lai_30, scenetype_var)
+  lai30$illumination = "direct sun, 30? zenith angle"
+  lai30$fapar_diffs = agg_fapar_data(path_lai_30, scenetype_var)
+  
+  lai_ov = read_and_agg_data(path_lai_ov, scenetype_var)
+  lai_ov$illumination = "overcasted"
+  lai_ov$fapar_diffs = agg_fapar_data(path_lai_ov, scenetype_var)
+  
+  laiall = as.data.frame(rbind(lai, lai30, lai_ov))
+  laiall$trait = "LAI"
+  
+  ### LAD --------------------------------------------------------
+  lad = read_and_agg_data(path_lad, scenetype_var)
+  lad$illumination = "direct sun, 0? zenith angle"
+  lad$fapar_diffs = agg_fapar_data(path_lad, scenetype_var)
+  
+  lad30 = read_and_agg_data(path_lad_30, scenetype_var)
+  lad30$illumination = "direct sun, 30? zenith angle"
+  lad30$fapar_diffs = agg_fapar_data(path_lad_30, scenetype_var)
+  
+  lad_ov = read_and_agg_data(path_lad_ov, scenetype_var)
+  lad_ov$illumination = "overcasted"
+  lad_ov$fapar_diffs = agg_fapar_data(path_lad_ov, scenetype_var)
+  
+  ladall = as.data.frame(rbind(lad, lad30, lad_ov))
+  ladall$trait = "LAD"
+  
+
+  
+  ### LOP --------------------------------------------------------
+  lop = read_and_agg_data(path_lop, scenetype_var)
+  lop$illumination = "direct sun, 0? zenith angle"
+  lop$fapar_diffs = agg_fapar_data(path_lop, scenetype_var)
+  
+  lop30 = read_and_agg_data(path_lop_30, scenetype_var)
+  lop30$illumination = "direct sun, 30? zenith angle"
+  lop30$fapar_diffs = agg_fapar_data(path_lop_30, scenetype_var)
+  
+  lop_ov = read_and_agg_data(path_lop_ov, scenetype_var)
+  lop_ov$illumination = "overcasted"
+  lop_ov$fapar_diffs = agg_fapar_data(path_lop_ov, scenetype_var)
+  
+  lopall = as.data.frame(rbind(lop, lop30, lop_ov))
+  lopall$trait = "LOP"
+
+  ### Combining all the data --------------------------------------
+  output = as.data.frame(rbind(laiall, ladall, lopall))
+  output$background = scenetype_var
+  
+  
+  return(output)
+}
+
+myprettyoptions = theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor.y = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=12), axis.text.x  = element_text(size=10),
+        axis.title.y = element_text(size=12), axis.text.y  = element_text(size=10),
+        strip.text.x = element_text(size = 10), strip.text.y = element_text(size = 12),
+        legend.text = element_text(size=10), legend.title = element_text(size=10), title = element_text(size=10))
+
+```
+
+
+
+
+```{r fig.height=2, fig.width=3}
+dat = as.data.frame(rbind(background_dat(1), background_dat(2), background_dat(3)))
+dat$background = as.factor(dat$background)
+levels(dat$background) = c("white", "black", "natural")
+write.csv(dat, "../Data_for_figures/50nm/another_param/lai_lad_lop.csv", row.names = F)
+```
+
+```{r}
+dat = read.csv("../Data_for_figures/50nm/another_param/lai_lad_lop.csv")
+dat$num_of_species = as.factor(dat$num_of_species)
+```
+
+
+
+```{r}
+head(dat$trait)
+dat$trait <- factor(dat$trait, levels = c("LAI", "LAD", "LOP"))
+head(dat$trait)
+```
+
+```{r}
+aggregate(differences ~trait, data = dat, FUN = mean)
+```
+
+
+```{r}
+summary(subset(dat, background == "natural" & illumination == "direct sun, 0? zenith angle" & trait == "LOP" & num_of_species == 4, select = c("fapar_diffs")))
+```
+
+
+
+Fig. 1
+```{r fig.height=2.5, fig.width=3}
+library(RColorBrewer)
+
+my_green = brewer.pal(7,"Greens")[6]
+my_orange = brewer.pal(7,"Oranges")[6]
+my_purple = brewer.pal(7,"Purples")[6]
+my_palette = c(my_green, my_orange, my_purple)
+
+plot_albedo = ggplot(subset(dat, background == "natural" & illumination == "direct sun, 0? zenith angle"), 
+       aes(x = num_of_species, y = differences, col = trait, fill = trait)) + 
+  geom_boxplot(width=0.7, alpha = 0.3, size = 0.65) +
+  geom_hline(yintercept = 0) + 
+  xlab("PFT richness") + ylab("albedo change (%)") + theme_bw() + 
+  scale_color_manual(values=my_palette) +
+  scale_fill_manual(values=my_palette) +
+  myprettyoptions + theme(legend.position = "none")
+plot_albedo
+
+
+```
+
+
+
+```{r fig.height=2.5, fig.width=3}
+
+plot_fapar = ggplot(subset(dat, background == "natural" & illumination == "direct sun, 0? zenith angle"), 
+       aes(x = num_of_species, y = fapar_diffs, col = trait, fill = trait)) + 
+  geom_boxplot(width=0.7, alpha = 0.3, size = 0.65) +
+  geom_hline(yintercept = 0) + 
+  xlab("PFT richness") + ylab("FAPAR change (%)") + theme_bw() + 
+  scale_color_manual(values=my_palette) +
+  scale_fill_manual(values=my_palette) +
+  myprettyoptions + theme(legend.position = "none")
+plot_fapar
+
+
+```
+
+
+
+
+```{r}
+summary(subset(dat, background == "natural" & illumination == "direct sun, 0? zenith angle  " & trait == "LOP"))
+```
+
+
+
+
+```{r fig.height=2.5, fig.width=6, message=FALSE, warning=FALSE}
+library(grid)
+library(gridExtra)
+
+myplot1 <- arrangeGrob(plot_albedo, top = textGrob("a", x = unit(0, "npc")
+         , y   = unit(0, "npc"), just=c("left","top"),
+         gp=gpar(col="black", fontsize=14, fontfamily="Areal")))
+
+myplot2 <- arrangeGrob(plot_fapar, top = textGrob("b", x = unit(0, "npc")
+         , y = unit(0, "npc"), just=c("left","top"),
+         gp=gpar(col="black", fontsize=14, fontfamily="Areal")))
+
+grid.arrange(myplot1, myplot2, ncol = 2)
+
+```
+For the legend
+```{r}
+levels(dat$trait)
+```
+
+For the legend
+```{r fig.height=2.5, fig.width=6}
+ggplot(subset(dat, background == "natural" & illumination == "direct sun, 0? zenith angle"), 
+       aes(x = num_of_species, y = fapar_diffs, col = trait, fill = trait)) + 
+  geom_boxplot(width=0.3, alpha = 0.3, size = 0.7) +
+  geom_hline(yintercept = 0) +
+  xlab("PFT richness") + ylab("FAPAR change (%)") + theme_bw() + 
+  scale_color_manual(values=my_palette, labels = levels(dat$trait)) +
+  scale_fill_manual(values=my_palette, labels = levels(dat$trait)) +
+  myprettyoptions + theme(legend.position = "bottom")
+```
+```{r}
+summary(dat$differences[dat$trait == "LOP" & dat$num_of_species == 2])
+```
+
+
+Supplementary Fig. 1 albedo change (%)
+```{r fig.height=6, fig.width=7}
+
+myprettyoptions_blankx = theme(panel.grid.major = element_line(colour = "grey"),panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=12), axis.text.x  = element_text(size=10),
+        axis.title.y = element_text(size=12), axis.text.y  = element_text(size=10),
+        strip.text.x = element_text(size = 11), strip.text.y = element_text(size = 11),
+        legend.text = element_text(size=11), legend.title = element_text(size=11), title = element_text(size=10))
+
+dat$illumination = as.factor(dat$illumination)
+levels(dat$illumination) =c("direct sun, 0° zenith angle", "direct sun, 30° zenith angle",  "overcasted")
+dat$background = factor(dat$background, levels=c("natural","white","black"))
+ggplot(dat, aes(x = num_of_species, y = differences, col = trait, fill = trait)) + 
+  geom_boxplot(width=0.6, alpha = 0.3, size = 0.7) + 
+  geom_hline(yintercept = 0) + 
+  xlab("PFT richness") + ylab("albedo change (%)") + theme_bw() + 
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  facet_grid(background~illumination, scales = "free") + 
+  scale_y_continuous(breaks = scales::pretty_breaks(3)) +
+  theme(legend.position="bottom") +
+  myprettyoptions_blankx
+
+```
+fapar change (%)
+```{r fig.height=6, fig.width=7}
+
+ggplot(dat, aes(x = num_of_species, y = fapar_diffs, col = trait, fill = trait)) + 
+  geom_boxplot(width=0.5, alpha = 0.3, size = 0.7) + 
+  geom_hline(yintercept = 0) + 
+  xlab("PFT richness") + ylab("FAPAR change (%)") + theme_bw() + 
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  facet_grid(background~illumination, scales = "free") + 
+  scale_y_continuous(breaks = scales::pretty_breaks(3)) +
+  theme(legend.position="bottom") +
+  myprettyoptions_blankx
+
+```
+
+
+
+## Optional
+
+```{r fig.height=6, fig.width=7}
+
+myprettyoptions_blankx = theme(panel.grid.major = element_line(colour = "grey"),panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=12), axis.text.x  = element_text(size=10),
+        axis.title.y = element_text(size=12), axis.text.y  = element_text(size=10),
+        strip.text.x = element_text(size = 11), strip.text.y = element_text(size = 11),
+        legend.text = element_text(size=11), legend.title = element_text(size=11), title = element_text(size=10))
+
+dat$illumination = as.factor(dat$illumination)
+levels(dat$illumination) =c("direct sun, 0° zenith angle", "direct sun, 30° zenith angle",  "overcasted")
+dat$background = factor(dat$background, levels=c('natural','white','black'))
+ggplot(dat[(dat$illumination == "direct sun, 0° zenith angle") & (dat$trait == "lai"),], 
+       aes(x = num_of_species, y = differences, col = trait, fill = trait)) + 
+  geom_boxplot(width=0.5, alpha = 0.3, size = 0.7) + 
+  geom_hline(yintercept = 0) + 
+  xlab("PFT richness") + ylab("albedo change (%)") + theme_bw() + 
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  facet_grid(background~illumination, scales = "free") + 
+  scale_y_continuous(breaks = scales::pretty_breaks(3)) +
+  theme(legend.position="bottom") +
+  myprettyoptions_blankx
+
+```
+
+(Opt. Supplementary Fig. 1 FAPAR change (%))
+```{r fig.height=6, fig.width=7}
+
+myprettyoptions_blankx = theme(panel.grid.major = element_line(colour = "grey"),panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=12), axis.text.x  = element_text(size=10),
+        axis.title.y = element_text(size=12), axis.text.y  = element_text(size=10),
+        strip.text.x = element_text(size = 11), strip.text.y = element_text(size = 11),
+        legend.text = element_text(size=11), legend.title = element_text(size=11), title = element_text(size=10))
+
+dat$illumination = as.factor(dat$illumination)
+levels(dat$illumination) =c("direct sun, 0? zenith angle", "direct sun, 30? zenith angle",  "overcasted")
+dat$background = factor(dat$background, levels=c('natural','white','black'))
+ggplot(dat, aes(x = num_of_species, y = - fapar_diffs, col = trait, fill = trait)) + 
+  geom_boxplot(width=0.5, alpha = 0.3, size = 0.7) + 
+  geom_hline(yintercept = 0) + 
+  xlab("plant trait PFT richness") + ylab("albedo loss") + theme_bw() + 
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  facet_grid(background~illumination, scales = "free") + 
+  scale_y_continuous(breaks = scales::pretty_breaks(3)) +
+  theme(legend.position="bottom") +
+  myprettyoptions_blankx
+
+```
+NIR albedo
+```{r fig.height=6, fig.width=7}
+
+myprettyoptions_blankx = theme(panel.grid.major = element_line(colour = "grey"),panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=12), axis.text.x  = element_text(size=10),
+        axis.title.y = element_text(size=12), axis.text.y  = element_text(size=10),
+        strip.text.x = element_text(size = 11), strip.text.y = element_text(size = 11),
+        legend.text = element_text(size=11), legend.title = element_text(size=11), title = element_text(size=10))
+
+dat$illumination = as.factor(dat$illumination)
+levels(dat$illumination) =c("direct sun, 0? zenith angle", "direct sun, 30? zenith angle",  "overcasted")
+dat$background = factor(dat$background, levels=c('natural','white','black'))
+ggplot(dat, aes(x = num_of_species, y = 11/9*(differences + 2/11*fapar_diffs), col = trait, fill = trait)) + 
+  geom_boxplot(width=0.5, alpha = 0.3, size = 0.7) + 
+  geom_hline(yintercept = 0) + 
+  xlab("plant trait PFT richness") + ylab("albedo loss") + theme_bw() + 
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  facet_grid(background~illumination, scales = "free") + 
+  scale_y_continuous(breaks = scales::pretty_breaks(3)) +
+  theme(legend.position="bottom") +
+  myprettyoptions_blankx
+
+```
+
+FAPAR gain - the same pattern
+```{r fig.height=6, fig.width=7}
+
+myprettyoptions_blankx = theme(panel.grid.major = element_line(colour = "grey"),panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+        plot.title = element_text(size=12, hjust = 0.5),
+        axis.title.x = element_text(size=12), axis.text.x  = element_text(size=10),
+        axis.title.y = element_text(size=12), axis.text.y  = element_text(size=10),
+        strip.text.x = element_text(size = 11), strip.text.y = element_text(size = 11),
+        legend.text = element_text(size=11), legend.title = element_text(size=11), title = element_text(size=10))
+
+dat$illumination = as.factor(dat$illumination)
+levels(dat$illumination) =c("direct sun, 0? zenith angle", "direct sun, 30? zenith angle",  "overcasted")
+dat$background = factor(dat$background, levels=c('natural','white','black'))
+ggplot(dat, aes(x = num_of_species, y = fapar_diffs, col = trait, fill = trait)) + 
+  geom_boxplot(width=0.5, alpha = 0.3, size = 0.7) + 
+  geom_hline(yintercept = 0) + 
+  xlab("plant trait PFT richness") + ylab("albedo loss") + theme_bw() + 
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  facet_grid(background~illumination, scales = "free") + 
+  scale_y_continuous(breaks = scales::pretty_breaks(3)) +
+  theme(legend.position="bottom") +
+  myprettyoptions_blankx
+```
+
+
+
+
+
+
+
+```{r fig.height=5, fig.width=7}
+dat$trait = factor(dat$trait, levels=c("lai", "LAD"))
+ggplot(dat, aes(x = num_of_species, y = differences, col = illumination, fill = illumination)) + 
+  geom_boxplot(width=0.5, alpha = 0.3, size = 0.7) + 
+  geom_hline(yintercept = 0) + 
+  xlab("PFT richness") + ylab("albedo loss") + theme_bw() + 
+  scale_color_brewer(palette="Dark2") +
+  scale_fill_brewer(palette="Dark2") +
+  scale_y_continuous(breaks = seq(-0.5,0,0.005)) +
+  facet_grid(background~trait, space = "free", scales = "free") + 
+  theme(legend.position="bottom") +
+  myprettyoptions
+
+
+```
+
+
+
+
+
+$$albedo(species_1 , species_2) - \frac{albedo(species_1) + albedo(species_2)}{2}$$
+
+

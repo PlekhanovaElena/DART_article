@@ -1,0 +1,427 @@
+
+---
+title: "Impacts of species diversity on the light distribution in canopies<br>
+&nbsp;"
+subtitle: "<center> ---------------- Leaf Area index ---------------- </center>"
+author: "Elena Plekhanova"
+date: "`r format(Sys.time(), '%B %e, %Y')`"
+output:
+  html_notebook: 
+    code_folding: hide
+
+fontsize: 16pt
+---
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(tidyr)
+library(dplyr)
+
+solar_path = "../Data_for_figures/Solar_irradiance.csv"
+
+read_solar_irradiance = function(sol_path = solar_path, bands = "all") {
+  srad = read.csv(sol_path)
+  srad = srad[srad$wavelength < 3,c(2:3)]
+  srad$wavelength = round(srad$wavelength, 3)
+  ## Pick only the irradiance between 400 and 2500 nm at 50nm range
+  srad = srad[unlist(sapply(c(8:50)/20, function(i) which(abs(srad$wavelength-i)==min(abs(srad$wavelength-i))))),]
+  srad = aggregate(srad, by = list(srad$wavelength), FUN = "mean")[,c(2:3)]
+  if (bands == "VIS") {
+  
+  srad$irradiance = srad$irradiance/sum(srad$irradiance[1:7])
+  srad$irradiance[8:43] = 0
+  
+  } else srad$irradiance = srad$irradiance/sum(srad$irradiance)
+  
+  return(srad$irradiance)
+}
+
+
+dat = read.csv("../Data_for_figures/50nm/another_param/profiles_exp1_lai_90.csv")
+
+Ncomb = 63
+Nscenes = 3
+Nspecies = 6
+```
+
+
+Supplementary Fig 4. Natural background
+
+```{r}
+dat$num_of_species = as.factor(dat$num_of_species)
+dat$species = as.factor(dat$species)
+
+levels(dat$species) = c("2", "3", "4", "5", "6", "1")
+dat$species = factor(dat$species, levels = c("1", "2", "3", "4", "5", "6"))
+
+solar_irradiance = read_solar_irradiance(bands = "VIS")
+dat$abs_mean = (dat$abs_mean)*solar_irradiance[dat$band]
+
+dat = aggregate(abs_mean  ~  num_of_species + height_m + species + pos + scenetype, data = dat, FUN = "sum")
+crown = as.data.frame(dat[dat$height_m != 1,])
+crown$scenetype = as.factor(crown$scenetype)
+levels(crown$scenetype) = c("white", "black", "natural")
+crown$scenetype = factor(crown$scenetype, levels = c("natural","black", "white"))
+
+subdat_scene = dat[dat$height_m == 1,]
+```
+
+
+
+Profiles of absorption of different species (differ by lai) in different mixtures (1 - 6 species)
+
+```{r fig.height=5.5, fig.width=10, message=FALSE, warning=FALSE}
+subdat_crown = crown[crown$scenetype == "natural",]
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -18, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -16, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1)) + 
+  scale_fill_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1))  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))  +
+  theme(legend.position="bottom", legend.box = "horizontal", legend.direction = "horizontal", strip.background = element_rect(fill="white"))
+```
+
+```{r}
+
+ann_text_1 = aggregate(abs_mean ~ num_of_species + species + scenetype, data = crown[crown$species %in% c("1", "6") & crown$num_of_species == 1,], FUN = sum)
+ann_text_1$abs_mean = round(ann_text_1$abs_mean, 2)
+ann_text_6 = aggregate(abs_mean ~ num_of_species + species + scenetype, data = crown[crown$species %in% c("1", "6") & crown$num_of_species == 6,], FUN = sum)
+ann_text_6$abs_mean = round(ann_text_6$abs_mean, 2)
+ann_text_6
+```
+
+```{r fig.height=5, fig.width=7}
+
+ggplot(data = crown[crown$num_of_species %in% c(1,6),], 
+       aes(x = height_m, y = abs_mean)) + 
+  #geom_line(aes(group = )) +
+  stat_summary(data = crown[crown$num_of_species == 1,], 
+               aes(x = height_m, y = abs_mean, col = species, 
+                   group = interaction(species, num_of_species)), alpha = 0.45, fun = 'mean', 
+               geom = 'line', size = 1.1) +
+  
+  stat_summary(data = crown[crown$num_of_species == 6,], 
+               aes(x = height_m, y = abs_mean, col = species, 
+                   group = interaction(species, num_of_species)), fun = 'mean', 
+               geom = 'line', size = 1) +
+
+  scale_y_continuous(breaks = seq(0,0.35,0.1)) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  geom_text(data  = ann_text_1[ann_text_1$species == "1",], mapping = aes(x = -Inf, y = -Inf, label = abs_mean, col = species),
+            hjust = -2.5, vjust   = -20.75, show.legend = FALSE, size = 4.5, alpha = 0.6) +
+  geom_text(data  = ann_text_6[ann_text_6$species == "1",], mapping = aes(x = -Inf, y = -Inf, label = abs_mean, col = species),
+            hjust = -2.5, vjust   = -18.75, show.legend = FALSE, size = 4.5) +
+  
+  geom_text(data  = ann_text_1[ann_text_1$species == "6",], mapping = aes(x = -Inf, y = -Inf, label = abs_mean, col = species),
+            hjust = -3.6, vjust   = -16.5, show.legend = FALSE, size = 4.5, alpha = 0.6) +
+  geom_text(data  = ann_text_6[ann_text_6$species == "6",], mapping = aes(x = -Inf, y = -Inf, label = abs_mean, col = species),
+            hjust = -3.6, vjust   = -14.5, show.legend = FALSE, size = 4.5) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1)) + 
+  coord_flip() +
+  facet_grid( ~scenetype) +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))  +
+  theme(legend.position="right", legend.box = "vertical", legend.direction = "vertical", strip.background = element_rect(fill="white")) + guides(col=guide_legend(ncol=1, title = "LAI"))
+```
+
+```{r}
+ann_text_first
+```
+
+
+
+
+```{r}
+
+
+dat61 = crown[crown$num_of_species %in% c(1,6),]
+dat61 = dat61[,c("num_of_species", "height_m", "species", "scenetype", "abs_mean")]
+
+dat61 <- dat61 %>% spread(num_of_species, abs_mean)
+dat61$abs_diff = dat61$`6` - dat61$`1`
+dat61 = dat61[,c( "height_m", "species", "scenetype", "abs_diff")]
+head(dat61)
+```
+```{r}
+ggplot(data = dat61, 
+       aes(x = height_m, y = abs_diff)) + 
+  #geom_line(aes(group = )) +
+  stat_summary(data = dat61, 
+               aes(x = height_m, y = abs_diff, col = species, 
+                   group = species), alpha = 1, fun = 'mean', 
+               geom = 'line', size = 1.1) +
+
+  #scale_y_continuous(breaks = seq(0,0.15,0.005)) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1)) + 
+  coord_flip() +
+  facet_grid( ~scenetype, scales = "free_x") +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))  +
+  theme(legend.position="right", legend.box = "vertical", legend.direction = "vertical", strip.background = element_rect(fill="white")) + guides(col=guide_legend(ncol=1, title = "LAI"))
+```
+
+
+
+```{r fig.height=5.5, fig.width=7, message=FALSE, warning=FALSE}
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.4) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -18, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -16, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1)) + 
+  scale_fill_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1))  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=12), title = element_text(size=12))  +
+  theme(legend.position="bottom", legend.box = "horizontal", legend.direction = "horizontal")
+```
+
+```{r fig.height=3, fig.width=7}
+ggplot(data = subdat_scene, 
+       aes(x = reorder(num_of_species,-as.numeric(num_of_species)), y = abs_mean, fill = num_of_species)) + 
+  geom_boxplot(aes(col = num_of_species)) +
+  scale_y_continuous(breaks = seq(0,1.5,0.005)) +
+  facet_grid(~species, scales = "free_x", space = "free_x" ) + 
+  
+  ylab("FAPAR of scene")  + theme_bw() + xlab("num_of_species") + 
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  +
+  coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16)) + theme(legend.position="none", legend.box = "horizontal", legend.direction = "horizontal", strip.background = element_rect(fill="white"))
+```
+
+Supplementary Fig 4. White  background
+
+
+
+Profiles of absorption of different species (differ by lai) in different mixtures (1 - 6 species)
+
+```{r fig.height=5.5, fig.width=10, message=FALSE, warning=FALSE}
+subdat_crown = crown[crown$scenetype == 1,]
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  #stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.1) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1) +
+  
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -18, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -16, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1)) + 
+  scale_fill_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1))  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))  +
+  theme(legend.position="bottom", legend.box = "horizontal", legend.direction = "horizontal", strip.background = element_rect(fill="white"))
+```
+
+```{r fig.height=5.5, fig.width=10, message=FALSE, warning=FALSE}
+ann_text_first <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == 1]), 2 )), 
+  num_of_species = rep(factor(1,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+ann_text_last <- data.frame(label = sapply(levels(subdat_crown$species), function(x) 
+  round(sum(subdat_crown$abs_mean[subdat_crown$species == x & subdat_crown$num_of_species == Nspecies]), 2 )), 
+  num_of_species = rep(factor(Nspecies,levels = levels(subdat_crown$num_of_species)), Nspecies),
+  species = factor(levels(subdat_crown$species),levels = levels(subdat_crown$species)))
+
+
+ggplot(data = subdat_crown, 
+       aes(x = height_m, y = abs_mean, col = num_of_species)) + 
+  stat_summary(aes(col = num_of_species), fun.y = 'mean', geom = 'line', size = 1.1) +
+  stat_summary(aes(fill = num_of_species), fun.data = 'mean_sdl', geom = 'ribbon', alpha = 0.2, 
+               fun.args = list(mult = 1)) +
+  
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  facet_grid(~species, space = "free", scales = "free") +  
+  geom_text(data  = ann_text_first, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -18, show.legend = FALSE, size = 4.5) +
+  geom_text(data  = ann_text_last, mapping = aes(x = -Inf, y = -Inf, label = label),
+            hjust = -0.5, vjust   = -16, show.legend = FALSE, size = 4.5) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1)) + 
+  scale_fill_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1))  + coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))  +
+  theme(legend.position="bottom", legend.box = "horizontal", legend.direction = "horizontal", strip.background = element_rect(fill="white"))
+```
+
+```{r fig.height=5, fig.width=4}
+ggplot(data = subdat_crown[subdat_crown$num_of_species %in% c(1,6),], 
+       aes(x = height_m, y = abs_mean)) + 
+  #geom_line(aes(group = )) +
+  stat_summary(data = subdat_crown[subdat_crown$num_of_species == 1,], 
+               aes(x = height_m, y = abs_mean, col = species, 
+                   group = interaction(species, num_of_species)), alpha = 0.45, fun = 'mean', 
+               geom = 'line', size = 1.1) +
+  
+  stat_summary(data = subdat_crown[subdat_crown$num_of_species == 6,], 
+               aes(x = height_m, y = abs_mean, col = species, 
+                   group = interaction(species, num_of_species)), fun = 'mean', 
+               geom = 'line', size = 1) +
+
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1)) + 
+  coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))  +
+  theme(legend.position="right", legend.box = "vertical", legend.direction = "vertical", strip.background = element_rect(fill="white")) + guides(col=guide_legend(ncol=1, title = "LAI"))
+```
+
+
+```{r fig.height=5, fig.width=4}
+subdat_crown = crown[crown$scenetype == 2,]
+ggplot(data = subdat_crown[subdat_crown$num_of_species %in% c(1,6),], 
+       aes(x = height_m, y = abs_mean)) + 
+  #geom_line(aes(group = )) +
+  stat_summary(data = subdat_crown[subdat_crown$num_of_species == 1,], 
+               aes(x = height_m, y = abs_mean, col = species, 
+                   group = interaction(species, num_of_species)), alpha = 0.45, fun = 'mean', 
+               geom = 'line', size = 1.1) +
+  
+  stat_summary(data = subdat_crown[subdat_crown$num_of_species == 6,], 
+               aes(x = height_m, y = abs_mean, col = species, 
+                   group = interaction(species, num_of_species)), fun = 'mean', 
+               geom = 'line', size = 1) +
+
+  scale_y_continuous(breaks = seq(0,0.15,0.05)) +
+  #geom_text(data = ann_text,label = as.character(ann_text$label), show.legend = FALSE) +
+  
+  ylab("FAPAR")  + theme_bw() + xlab("height, m") + 
+  scale_color_brewer(palette="Spectral", guide = 
+                       guide_legend(title = "PFT richness", nrow = 1)) + 
+  coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16))  +
+  theme(legend.position="right", legend.box = "vertical", legend.direction = "vertical", strip.background = element_rect(fill="white")) + guides(col=guide_legend(ncol=1, title = "LAI"))
+```
+
+
+```{r fig.height=3, fig.width=12}
+ggplot(data = subdat_scene, 
+       aes(x = reorder(num_of_species,-as.numeric(num_of_species)), y = abs_mean, fill = num_of_species)) + 
+  geom_boxplot(aes(col = num_of_species)) +
+  #scale_y_continuous(breaks = seq(0,1.5,0.002)) +
+  facet_grid(~species, scales = "free_x", space = "free_x" ) + 
+  
+  ylab("FAPAR of scene")  + theme_bw() + xlab("num_of_species") + 
+  scale_color_brewer(palette="Spectral") + scale_fill_brewer(palette="Spectral")  +
+  coord_flip() +
+  theme(panel.grid.major = element_line(colour = "lightgrey"), panel.grid.minor = element_blank(),
+        plot.title = element_text(size=16, hjust = 0.5),
+        axis.title.x = element_text(size=16), axis.text.x  = element_text(size=12),
+        axis.title.y = element_text(size=16), axis.text.y  = element_text(size=12),
+        strip.text.x = element_text(size = 14), strip.text.y = element_text(size = 14),
+        legend.text = element_text(size=12), legend.title = element_text(size=14), title = element_text(size=16)) + theme(legend.position="none", legend.box = "horizontal", legend.direction = "horizontal", strip.background = element_rect(fill="white"))
+```
+

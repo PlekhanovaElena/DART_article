@@ -1,0 +1,186 @@
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(gplots)
+library(RColorBrewer)
+library(cowplot)
+library(viridis)
+
+Nspecies = 121
+Nscenes = 1
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+#dat = read.csv("C:/Users/Gast/DART/user_data/simulations/Output_data/2_trees_test_lop_db/profiles_2d.csv")
+dat = read.csv("./Data_for_figures/Fig5_2trees/profiles_2d.csv")
+dat$num_of_species = as.factor(dat$num_of_species)
+dat$transm1 = 0.1*(dat$transm1 - 1)
+dat$transm2 = 0.1*(dat$transm2 - 1)
+dat$refl1 = 0.1*(dat$refl1 - 1)
+dat$refl2 = 0.1*(dat$refl2 - 1)
+#dat$species = as.factor(dat$species)
+#levels(dat$species) = c("specie1", "specie2")
+
+dat$transm_refl[dat$species == 0] = paste0(dat$transm1[dat$species == 0], "_", dat$refl1[dat$species == 0])
+dat$transm_refl[dat$species == 1] = paste0(dat$transm2[dat$species == 1], "_", dat$refl2[dat$species == 1])
+dat$species[dat$species == 0] = paste0(dat$transm1[dat$species == 0], "_", dat$refl1[dat$species == 0])
+dat$species[dat$species == 1] = paste0(dat$transm2[dat$species == 1], "_", dat$refl2[dat$species == 1])
+
+subdat_crown = as.data.frame(dat[dat$height_m != 1,])
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+
+subdat_crown$pos = subdat_crown$idSimulation
+aggdat = aggregate(abs_mean ~ height_m + pos + transm1 + transm2 + refl1 + refl2 + num_of_species, 
+                   data = subdat_crown, FUN = "mean")
+res_tab = lapply(unique(aggdat$pos[as.numeric(aggdat$num_of_species) > 1]), function(POS) {
+
+  av_mixture = subset(aggdat, pos == POS, abs_mean)
+
+  abs_of_monocultures = lapply(unique(subdat_crown$species[subdat_crown$pos == POS]), function(x) {
+    position_of_mon = subdat_crown$pos[subdat_crown$species == x & 
+                                         subdat_crown$num_of_species == 1][1]
+    res = subset(aggdat, pos == position_of_mon, select = abs_mean)
+    return(res)
+  })
+    
+  av_monocultures = apply(do.call(rbind.data.frame, list(abs_of_monocultures)), 1, mean)
+  
+  
+  one_mix = data.frame( ( sapply( c(1:nrow(av_mixture)), function(i) 
+    -(av_mixture[i,1] - av_monocultures[i])*100/av_monocultures[i] ) ), c(1:nrow(av_mixture)), 
+                        rep(POS, nrow(av_mixture)))
+  colnames(one_mix) = c("abs_mean", "height_m", "pos")
+  
+  one_mix$diff_sum = rep(round(sum(one_mix$abs_mean), 7), nrow(one_mix))
+  one_mix$num_of_species = rep(aggdat$num_of_species[aggdat$pos == POS][1], nrow(one_mix))
+  one_mix$transm1 = rep(aggdat$transm1[aggdat$pos == POS][1], nrow(one_mix))
+  one_mix$transm2 = rep(aggdat$transm2[aggdat$pos == POS][1], nrow(one_mix))
+  one_mix$refl1 = rep(aggdat$refl1[aggdat$pos == POS][1], nrow(one_mix))
+  one_mix$refl2 = rep(aggdat$refl2[aggdat$pos == POS][1], nrow(one_mix))
+  
+  return(one_mix)
+})
+res_tab = do.call(rbind.data.frame, res_tab)
+```
+
+To calculate the net biodiversity effect, we used the following formula:
+
+&nbsp;
+
+$$abs_{mix-mon} = absorptance_{mon}(species_1, species_2) - \frac{absorptance_{mon}(species_1) + absorptance_{mon}(species_2)}{2} $$
+
+```{r}
+summary(res_tab)
+```
+
+
+## What combination of leaf optical properties contributes to this difference?
+
+&nbsp;
+H0: $abs_{mix-mon}$ mainly dependant on difference between absorptances of 2 species and their transmittances.
+
+To check if this sentance holds for our simulations, we represented difference between mixtures and monocultures in corresponding axes:
+
+```{r fig.height=7, fig.width=7, message=FALSE, warning=FALSE}
+
+aggdat = aggregate(diff_sum ~ pos + transm1 + transm2 + refl1 + refl2, 
+                   data = res_tab, FUN = "sum")
+aggdat$sp1 =  round( abs(aggdat$transm1 - aggdat$transm2) , 2)
+#aggdat$sp1 =  round( abs(aggdat$refl1 - aggdat$refl2) , 2)
+aggdat$sp2 =  round( abs(aggdat$transm1 - aggdat$transm2 + aggdat$refl1 - aggdat$refl2) , 2)
+
+vector_a = aggdat$sp1
+vector_b = aggdat$sp2
+
+albmat = sapply(sort(unique(vector_a)), function (a) 
+  sapply(sort(unique(vector_b)), function(b) 
+    mean( aggdat$diff_sum[vector_a == a & vector_b== b])))
+
+my_palette = brewer.pal(7,"Oranges")
+my_palette=colorRampPalette(my_palette)(100)
+
+lmat = rbind(c(0,3),c(2,1),c(0,4))
+lwid = c(1.5,4)
+lhei = c(1.5,4,1)
+
+
+heatmap.2(t(albmat),margins=c(5,5), scale="none", labCol = sort(unique(vector_b)),
+          labRow = sort(unique(vector_a)),
+          dendrogram="none",  trace="none", xlab = "Leaf absorptance diversity", key.title = NA, keysize = 1,
+          lmat = lmat, lwid = lwid, lhei = lhei,
+          key.xlab = "Absorptance of mixtures - monocultures",
+          ylab = "Leaf transmittance diversity", density.info="none", Colv = NA, Rowv = NA,
+          col = my_palette, symm=F,symkey=F,symbreaks=F)
+
+library(plotly)
+p <- plot_ly(z = ~t(albmat)) %>% add_surface() %>%
+  layout(
+    title = "Difference in absorptance between mixtures and monocultures",
+    scene = list(
+      xaxis = list(title = "Leaf absorptance diversity"),
+      yaxis = list(title = "Leaf transmittance diversity"),
+      zaxis = list(title = "Difference")
+    ))
+#p
+
+```
+
+
+
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+aggdat = aggregate(diff_sum ~ pos + transm1 + transm2 + refl1 + refl2, 
+                   data = res_tab, FUN = "mean")
+aggdat$sp1 =  round( abs(aggdat$transm1 - aggdat$transm2) , 2)
+#aggdat$sp1 =  round( abs(aggdat$refl1 - aggdat$refl2) , 2)
+aggdat$sp2 =  round( abs(aggdat$transm1 - aggdat$transm2 + aggdat$refl1 - aggdat$refl2) , 2)
+
+vector_a = aggdat$sp1
+vector_b = aggdat$sp2
+
+albmat = sapply(sort(unique(vector_a)), function (a) 
+  sapply(sort(unique(vector_b)), function(b) 
+    mean( aggdat$diff_sum[vector_a == a & vector_b== b])))
+
+my_palette = brewer.pal(7,"Oranges")
+my_palette=colorRampPalette(my_palette)(100)
+
+lmat = rbind(c(0,3),c(2,1),c(0,4))
+lwid = c(1.5,4)
+lhei = c(1.5,4,1)
+
+
+heatmap.2(t(albmat),margins=c(5,5), scale="none", labCol = sort(unique(vector_b)),
+          labRow = sort(unique(vector_a)),
+          dendrogram="none",  trace="none", xlab = "Leaf absorptance diversity", key.title = NA, keysize = 1,
+          lmat = lmat, lwid = lwid, lhei = lhei, cexRow = 1.2, cexCol = 1.2, key = F,
+          key.xlab = "Absorptance  of mixtures - monocultures",
+          ylab = "Leaf transmittance diversity", density.info="none", Colv = NA, Rowv = NA,
+          col = my_palette, symm=F,symkey=F,symbreaks=F)
+
+
+
+```
+```{r}
+heatmap.2(t(albmat),margins=c(7,7), scale="none", labCol = sort(unique(vector_b)),
+          labRow = sort(unique(vector_a)),
+          dendrogram="none",  trace="none", xlab = "Difference in absorptance", key.title = NA, keysize = 1, 
+          lmat = lmat, lwid = lwid, lhei = lhei,
+          cexRow = 1.8, cexCol = 1.8,
+          key.xlab = "FAPAR change", par = par(cex.lab = 1.8, cex.axis = 1.8),
+          ylab = "Difference in transmittance", density.info="none", Colv = NA, Rowv = NA,
+          col = my_palette, symm=F,symkey=F,symbreaks=F)
+#par(cex.lab = 10)
+```
+
+
+
+&nbsp;
+Although the most of variation indeed explained by these axes, we can see some non-linearity in this plot, which has not been explained yet.
+&nbsp;
