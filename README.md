@@ -1,6 +1,11 @@
 # DART_article
 
-The data to the future manuscript.
+The code for the following manscript
+
+E. Plekhanova, P.A. Niklaus, J.P. Gastellu-Etchegorry, G. Schaepman-Strub
+**How does leaf functional diversity affect the light environment in forest canopies? An in-silico biodiversity experiment** (2021) *Ecological Modelling*
+[https://doi.org/10.1016/j.ecolmodel.2020.109394](https://doi.org/10.1016/j.ecolmodel.2020.109394)
+
 
 ### Data and scripts for figures
 
